@@ -15,3 +15,20 @@
 # Track meta files
 !.gitignore
 !README.md
+
+# Ignore recompliable JARs
+Demo/*
+!Demo/DemoUDF.jar
+!Demo/RankingHD.pig
+!Demo/RankingHDFS.pig
+!Demo/testHDFS.sh
+!Demo/Data
+
+# Ignore integrated test data and
+Demo/Data/*
+!Demo/Data/GeelongWifiStatsSchema.txt
+!Demo/Data/integrate.sh
+!Demo/Data/split.sh
+!Demo/Data/WifiRankingAns.csv
+!Demo/Data/WifiStatusEg.csv
+!Demo/Data/WifiStatusTotal.csv

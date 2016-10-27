@@ -71,6 +71,8 @@ public class PipelineMonitor {
 
                 /* Write Pipeline info into ESS */
                 es_slave_pipelines.send(gson.toJson(pinfo));
+
+                System.out.println(String.format("New PID: %s\n", pinfo.pid));
             }
             catch (Exception e)
             {
@@ -98,7 +100,8 @@ public class PipelineMonitor {
                 if (null == precord)
                 {
                     in.close();
-                    String msg = "Invalid PID: No such pipeline running currently.";
+                    String msg = String.format("Invalid PID: '%s'; No such pipeline running currently.", log.pid);
+                    System.err.println(msg);
                     t.sendResponseHeaders(400, msg.getBytes().length);
                     OutputStream out = t.getResponseBody();
                     out.write(msg.getBytes());
@@ -161,6 +164,7 @@ public class PipelineMonitor {
                     out.write(storage_path.getBytes());
                     out.close();
                 }
+                System.out.println(String.format("ALLOC: %s, %s, %d\n", log.pid, vinfo.index, vinfo.alloc_num));
             }
             catch (Exception e)
             {

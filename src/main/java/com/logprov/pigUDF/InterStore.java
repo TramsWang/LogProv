@@ -44,6 +44,7 @@ public class InterStore extends EvalFunc<Tuple>{
     private FileSystem hdfs;
     private PrintWriter file;
     private String ps_location;
+    private String pid;
     private int lines;
 
     private InterStore(){}
@@ -51,21 +52,21 @@ public class InterStore extends EvalFunc<Tuple>{
     /**
      *   Put to public only initializer with parameters.
      */
-    public InterStore(String ps_url)
+    public InterStore(String pm_url, String pid)
     {
         file = null;
         lines = -1;
-        ps_location = ps_url;
+        ps_location = pm_url;
         hdfs = null;
+        this.pid = pid + '\n';
     }
 
     /**
      *   Main body of storing procedure. Store one record line at a time. Fields in 'input' should be:
-     *   $0: 'pid'
-     *   $1: 'srcvars'
-     *   $2: 'processor'
-     *   $3: 'dstvar'
-     *   $4,...: record content
+     *   $0: 'srcvars'
+     *   $1: 'processor'
+     *   $2: 'dstvar'
+     *   $3,...: record content
      *
      * @param input Source data
      * @return Stored tuple.
@@ -76,10 +77,9 @@ public class InterStore extends EvalFunc<Tuple>{
         if (null == file)
         {
             System.out.println("INTER:: Create");
-            String pid = (String)input.get(0) + '\n';
-            String srcvar = (String)input.get(1) + '\n';
-            String operation = (String)input.get(2) + '\n';
-            String varname = (String)input.get(3);
+            String srcvar = (String)input.get(0) + '\n';
+            String operation = (String)input.get(1) + '\n';
+            String varname = (String)input.get(2);
 
             /* Send parameters and get storage path from PM */
             URL url = new URL(ps_location + "/_reqDS");
