@@ -1,0 +1,17 @@
+# Ignore temporary files
+*~
+[#]*[#]
+
+# Ignore log files
+*.log
+
+# Track nothing but source code and test data
+/*
+!src/
+!Demo/
+!mario.conf
+!pom.xml
+
+# Track meta files
+!.gitignore
+!README.md

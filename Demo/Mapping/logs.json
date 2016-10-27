@@ -1,0 +1,12 @@
+{"properties":
+ {"pid":{"type":"string","index":"not_analyzed"},
+  "srcvar":{"type":"string","index":"not_analyzed"},
+  "srcidx":{"type":"string","index":"not_analyzed"},
+  "operation":{"type":"string","index":"not_analyzed"},
+  "dstvar":{"type":"string","index":"not_analyzed"},
+  "dstidx":{"type":"string","index":"not_analyzed"},
+  "score":{"type":"double"},
+  "start":{"type":"string","index":"not_analyzed"},
+  "finish":{"type":"string","index":"not_analyzed"}
+ }
+}

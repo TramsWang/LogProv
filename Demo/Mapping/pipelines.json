@@ -1,0 +1,8 @@
+{"properties":
+ {"pid":{"type":"string","index":"not_analyzed"},
+  "hdfs_path":{"type":"string","index":"not_analyzed"},
+  "info":{"type":"string"},
+  "start":{"type":"string","index":"not_analyzed"},
+  "finish":{"type":"string","index":"not_analyzed"}
+ }
+}
