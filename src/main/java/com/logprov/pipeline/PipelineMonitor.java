@@ -6,12 +6,29 @@ import com.sun.net.httpserver.HttpContext;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpHandler;
 import com.sun.net.httpserver.HttpServer;
+import org.apache.http.HttpConnection;
+import org.apache.http.HttpHost;
+import org.apache.http.entity.ContentType;
+import org.apache.http.nio.entity.NStringEntity;
+import org.apache.http.util.EntityUtils;
+import org.elasticsearch.action.search.SearchResponse;
+import org.elasticsearch.action.search.SearchType;
+import org.elasticsearch.action.update.UpdateRequest;
+import org.elasticsearch.client.Response;
+import org.elasticsearch.client.RestClient;
+import org.elasticsearch.client.transport.TransportClient;
+import org.elasticsearch.common.settings.Settings;
+import org.elasticsearch.common.transport.InetSocketTransportAddress;
+import org.elasticsearch.index.query.QueryBuilders;
+import org.elasticsearch.search.SearchHit;
+import org.elasticsearch.transport.client.PreBuiltTransportClient;
 
 import java.io.*;
+import java.net.HttpURLConnection;
+import java.net.InetAddress;
 import java.net.InetSocketAddress;
-import java.util.Date;
-import java.util.HashMap;
-import java.util.UUID;
+import java.net.URL;
+import java.util.*;
 
 /**
  * Created by babyfish on 16-10-26.
@@ -44,6 +61,7 @@ public class PipelineMonitor {
         }
     }
 
+
     private class Start implements HttpHandler {
 
         public void handle(HttpExchange t)
@@ -70,8 +88,12 @@ public class PipelineMonitor {
                 pipelines.put(pinfo.pid, new PipelineRecord(pinfo.hdfs_path));
 
                 /* Write Pipeline info into ESS */
-                es_slave_pipelines.send(gson.toJson(pinfo));
+                //es_slave_pipelines.send(gson.toJson(pinfo));
+                Response response = es_client.performRequest("POST", String.format("/%s/%s", Config.ESS_INDEX, Config.ESS_PIPELINE_TYPE),
+                        Collections.<String, String>emptyMap(),
+                        new NStringEntity(gson.toJson(pinfo)));
 
+                System.out.println(String.format("%s: %s", EntityUtils.toString(response.getEntity()), response.toString()));
                 System.out.println(String.format("New PID: %s\n", pinfo.pid));
             }
             catch (Exception e)
@@ -146,12 +168,11 @@ public class PipelineMonitor {
                         {
                             log.srcidx += ',' + ((null == tmpvinfo) ? "LOAD" : tmpvinfo.index);
                         }
-                        es_slave_logs.send(gson.toJson(log));
                     }
 
-                    VarAllocInfo tmpvinfo = precord.vars.get(log.srcvar);
-                    log.srcidx = (null == tmpvinfo)?"LOAD":tmpvinfo.index;
-                    es_slave_logs.send(gson.toJson(log));
+                    es_client.performRequest("POST", String.format("/%s/%s", Config.ESS_INDEX, Config.ESS_LOG_TYPE),
+                            Collections.<String, String>emptyMap(),
+                            new NStringEntity(gson.toJson(log), ContentType.APPLICATION_JSON));
                 }
                 else
                 {
@@ -173,7 +194,7 @@ public class PipelineMonitor {
         }
     }
 
-    private class Terminate implements  HttpHandler{
+    private class Terminate implements HttpHandler{
 
         public void handle(HttpExchange t)
         {
@@ -185,9 +206,9 @@ public class PipelineMonitor {
 
                 /* Check validity */
                 PipelineRecord precord = pipelines.get(pid);
-                if (null == pid)
+                if (null == precord)
                 {
-                    String msg = "Invalid PID: No such pipeline is running currently.";
+                    String msg = "Invalid PID: No such pipeline is running currently.\n";
                     t.sendResponseHeaders(400, msg.getBytes().length);
                     OutputStream out = t.getResponseBody();
                     out.write(msg.getBytes());
@@ -196,10 +217,31 @@ public class PipelineMonitor {
                 }
 
                 /* Modify finish time of that pipeline execution */
-                //Not yet
+                SearchResponse response = es_transport_client.prepareSearch(Config.ESS_INDEX)
+                        .setTypes(Config.ESS_PIPELINE_TYPE).setSearchType(SearchType.DFS_QUERY_THEN_FETCH)
+                        .setQuery(QueryBuilders.termQuery("pid", pid))
+                        .get();
+                SearchHit hits[] = response.getHits().getHits();
+                if (0 < hits.length)
+                {
+                    System.out.println("HIT: " + hits[0].sourceAsString());
+                    UpdateRequest request = new UpdateRequest();
+                    request.index(Config.ESS_INDEX).type(Config.ESS_PIPELINE_TYPE).id(hits[0].getId())
+                            .doc("finish", new Date().toString());
+                    System.out.println("UPDATE: " + es_transport_client.update(request).get().toString());
+                }
+                else
+                {
+                    String msg = "Invalid PID: No such pipeline is found in Elasticsearch<" + pid + ">\n";
+                    t.sendResponseHeaders(400, msg.getBytes().length);
+                    OutputStream out = t.getResponseBody();
+                    out.write(msg.getBytes());
+                    out.close();
+                    return;
+                }
 
                 /* Remove entry for this pipeline in map */
-                //Not yet
+                pipelines.remove(pid);
 
                 /* Return ACK */
                 t.sendResponseHeaders(200, 0);
@@ -212,15 +254,192 @@ public class PipelineMonitor {
         }
     }
 
-    private EsSlave es_slave_logs, es_slave_pipelines;
+    private class Evaluate implements HttpHandler {
+
+        private class LogInfo{
+            String eid;
+            LogLine log;
+        }
+
+        public void handle(HttpExchange t)
+        {
+            try
+            {
+                /* Read parameters */
+                BufferedReader in = new BufferedReader(new InputStreamReader(t.getRequestBody()));
+                String pid = in.readLine();
+                String varname = in.readLine();
+                String oracle_address = in.readLine();
+                in.close();
+
+                /* Get the file path */
+                String path;
+                PipelineRecord precord = pipelines.get(pid);
+                if (null == precord)
+                {
+                    /* Pipeline terminated or doesn't exist */
+                    String hdfspath;
+                    SearchResponse response = es_transport_client.prepareSearch(Config.ESS_INDEX)
+                            .setTypes(Config.ESS_PIPELINE_TYPE).setSearchType(SearchType.DFS_QUERY_THEN_FETCH)
+                            .setQuery(QueryBuilders.termQuery("pid", pid))
+                            .get();
+                    SearchHit hits[] = response.getHits().getHits();
+                    if (0 < hits.length)
+                    {
+                        hdfspath = gson.fromJson(hits[0].getSourceAsString(), PipelineRecord.class).hdfs_path;
+                    }
+                    else
+                    {
+                        /* Pipeline doesn't exist */
+                        String msg = String.format("Bad PID: Pipeline '%s' does not exist.\n", pid);
+                        t.sendResponseHeaders(400, msg.getBytes().length);
+                        OutputStream out = t.getResponseBody();
+                        out.write(msg.getBytes());
+                        out.close();
+                        return;
+                    }
+
+                    response = es_transport_client.prepareSearch(Config.ESS_INDEX)
+                            .setTypes(Config.ESS_LOG_TYPE).setSearchType(SearchType.DFS_QUERY_THEN_FETCH)
+                            .setQuery(QueryBuilders.boolQuery().must(QueryBuilders.termQuery("pid", pid))
+                                    .must(QueryBuilders.termQuery("dstvar", varname)))
+                            .get();
+                    hits = response.getHits().getHits();
+                    if (0 < hits.length)
+                    {
+                        path = String.format("%s/%s/%s/", hdfspath, pid,
+                                gson.fromJson(hits[0].getSourceAsString(), LogLine.class).dstidx);
+                    }
+                    else
+                    {
+                        /* Variable doesn't exist */
+                        String msg = String.format("Bad Variable Name: '%s' hasn't been inspected.\n", varname);
+                        t.sendResponseHeaders(400, msg.getBytes().length);
+                        OutputStream out = t.getResponseBody();
+                        out.write(msg.getBytes());
+                        out.close();
+                        return;
+                    }
+                }
+                else
+                {
+                    VarAllocInfo vinfo = precord.vars.get(varname);
+                    if (null == vinfo)
+                    {
+                        /* No such variable */
+                        String msg = String.format("Bad Variable Name: '%s' hasn't been inspected.\n", varname);
+                        t.sendResponseHeaders(400, msg.getBytes().length);
+                        OutputStream out = t.getResponseBody();
+                        out.write(msg.getBytes());
+                        out.close();
+                        return;
+                    }
+                    path = String.format("%s/%s/%s/", precord.hdfs_path, pid, vinfo.index);
+                }
+
+                /* Send the file path to the Oracle and wait for the feed back */
+                URL url = new URL(oracle_address);
+                HttpURLConnection con = (HttpURLConnection)url.openConnection();
+                con.setRequestMethod("GET");
+                con.setDoInput(true);
+                con.setDoOutput(true);
+                OutputStream out = con.getOutputStream();
+                out.write(path.getBytes());
+                out.close();
+
+                /* Oracle reads data and return a judgement */
+                int resp_code = con.getResponseCode();
+                double feed_back;
+                if (200 == resp_code)
+                {
+                    in = new BufferedReader(new InputStreamReader(con.getInputStream()));
+                    feed_back = Double.valueOf(in.readLine());
+                }
+                else
+                {
+                    /* Feed back error */
+                    String msg = String.format("Oracle Error: Response Code: %d\n", resp_code);
+                    t.sendResponseHeaders(400, msg.getBytes().length);
+                    out = t.getResponseBody();
+                    out.write(msg.getBytes());
+                    out.close();
+                    return;
+                }
+
+                /* Apply Elo-like scoring mechanism onto involved components */
+                Scoring(pid, varname, feed_back);
+            }
+            catch (IOException e)
+            {
+                e.printStackTrace();
+            }
+        }
+
+        private void Scoring(String pid, String varname, double score) throws IOException
+        {
+            /* Get all component logs */
+            HashMap<String, LogInfo> map = new HashMap<String, LogInfo>();
+            LogInfo info = null;
+            Queue<LogInfo> queue = new LinkedList<LogInfo>();
+            Set<LogInfo> set = new HashSet<LogInfo>();
+            SearchResponse response = es_transport_client.prepareSearch(Config.ESS_INDEX)
+                    .setTypes(Config.ESS_LOG_TYPE).setSearchType(SearchType.DFS_QUERY_THEN_FETCH)
+                    .setQuery(QueryBuilders.termQuery("pid", pid))
+                    .get();
+            for (SearchHit hit : response.getHits().getHits())
+            {
+                LogInfo tmpinfo = new LogInfo();
+                tmpinfo.log = gson.fromJson(hit.getSourceAsString(), LogLine.class);
+                map.put(tmpinfo.log.dstidx, tmpinfo);
+                if (varname.equals(tmpinfo.log.dstvar))
+                    info = tmpinfo;
+            }
+
+            if (null == info)
+                throw new IOException(String.format("No variable named '%s' found in PID<%s>", varname, pid));
+
+            /* Start backward propagation and add all modified components into a set */
+            queue.add(info);
+            while (!queue.isEmpty())
+            {
+                LogInfo tmpinfo = queue.remove();
+                tmpinfo.log.score += score;
+                set.add(tmpinfo);
+                String src_indices[] = tmpinfo.log.srcidx.split(",");
+                for (String srcidx : src_indices)
+                {
+                    tmpinfo = map.get(srcidx);
+                    if (null != tmpinfo)
+                        queue.add(tmpinfo);
+                }
+            }
+
+            /* Update those modified logs */
+            for (LogInfo tmpinfo : set)
+            {
+                es_client.performRequest("POST", String.format("/%s/%s/%s/_update", Config.ESS_INDEX,
+                        Config.ESS_LOG_TYPE, tmpinfo.eid), Collections.<String, String>emptyMap(),
+                        new NStringEntity(gson.toJson(tmpinfo.log), ContentType.APPLICATION_JSON));
+            }
+        }
+    }
+
+    //private EsSlave es_slave_logs, es_slave_pipelines;
+    private RestClient es_client;
+    private TransportClient es_transport_client;
     private HashMap<String, PipelineRecord> pipelines;
     private Gson gson;
     private PrintWriter log_file;
 
     public PipelineMonitor() throws IOException
     {
-        es_slave_logs = new EsSlave(Config.ESS_INDEX, Config.ESS_LOG_TYPE, Config.ESS_LOG_MAPPING_FILE);
-        es_slave_pipelines = new EsSlave(Config.ESS_INDEX, Config.ESS_PIPELINE_TYPE, Config.ESS_PIPELINE_MAPPING_FILE);
+        es_client = RestClient.builder(new HttpHost(Config.ESS_HOST, Integer.valueOf(Config.ESS_PORT),
+                Config.ESS_PROTOCOL)).build();
+        es_transport_client = new PreBuiltTransportClient(Settings.EMPTY)
+                .addTransportAddress(new InetSocketTransportAddress(InetAddress.getByName(Config.ESS_HOST),
+                        Integer.valueOf(Config.ESS_TRANSPORT_PORT)));
+        //es_slave_logs = new EsSlave(Config.ESS_INDEX, Config.ESS_LOG_TYPE, Config.ESS_LOG_MAPPING_FILE);
+        //es_slave_pipelines = new EsSlave(Config.ESS_INDEX, Config.ESS_PIPELINE_TYPE, Config.ESS_PIPELINE_MAPPING_FILE);
         pipelines = new HashMap<String, PipelineRecord>();
         gson = new Gson();
         log_file = new PrintWriter(Config.PM_LOG_FILE);
@@ -236,25 +455,69 @@ public class PipelineMonitor {
         HttpContext cont_terminate = server.createContext(Config.CONT_TERMINATE_PIPELINE, new Terminate());
 
         /* Rebuild ESS Index and Type */
+        Response response;
         try
         {
-            es_slave_pipelines.deleteIndex();
-            es_slave_pipelines.addIndex();
+            //es_slave_pipelines.deleteIndex();
+            response = es_client.performRequest("DELETE", '/' + Config.ESS_INDEX);
+            System.out.println(String.format("%s: %s", EntityUtils.toString(response.getEntity()), response.toString()));
+            //es_slave_pipelines.addIndex();
+            response = es_client.performRequest("PUT", '/' + Config.ESS_INDEX);
+            System.out.println(String.format("%s: %s", EntityUtils.toString(response.getEntity()), response.toString()));
             System.out.println("ESS index: " + Config.ESS_INDEX + " rebuilt");
         }
         catch (IOException e)
         {
             e.printStackTrace();
             System.err.println("ESS index rebuild failed, create new index: " + Config.ESS_INDEX);
-            es_slave_pipelines.addIndex();
+            //es_slave_pipelines.addIndex();
+            response = es_client.performRequest("PUT", '/' + Config.ESS_INDEX);
+            System.out.println(String.format("%s: %s", EntityUtils.toString(response.getEntity()), response.toString()));
         }
-        es_slave_logs.addType();
-        es_slave_pipelines.addType();
+        //es_slave_logs.addType();
+        BufferedReader in = new BufferedReader(new FileReader(Config.ESS_MAPPING_DIR + '/' + Config.ESS_LOG_MAPPING_FILE));
+        String line;
+        String mapping_json = "";
+        while (null != (line = in.readLine()))
+        {
+            mapping_json += line;
+        }
+        in.close();
+        mapping_json = mapping_json.replaceAll("\\s+", "");
+        response = es_client.performRequest("PUT", String.format("/%s/_mapping/%s", Config.ESS_INDEX, Config.ESS_LOG_TYPE),
+                Collections.<String, String>emptyMap(),
+                new NStringEntity(mapping_json, ContentType.APPLICATION_JSON));
+        System.out.println(String.format("%s: %s", EntityUtils.toString(response.getEntity()), response.toString()));
+
+        //es_slave_pipelines.addType();
+        in = new BufferedReader(new FileReader(Config.ESS_MAPPING_DIR + '/' + Config.ESS_PIPELINE_MAPPING_FILE));
+        mapping_json = "";
+        while (null != (line = in.readLine()))
+        {
+            mapping_json += line;
+        }
+        in.close();
+        mapping_json = mapping_json.replaceAll("\\s+", "");
+        response = es_client.performRequest("PUT", String.format("/%s/_mapping/%s", Config.ESS_INDEX, Config.ESS_PIPELINE_TYPE),
+                Collections.<String, String>emptyMap(),
+                new NStringEntity(mapping_json, ContentType.APPLICATION_JSON));
+        System.out.println(String.format("%s: %s", EntityUtils.toString(response.getEntity()), response.toString()));
+        response = es_client.performRequest("GET", "/_cat/indices?v");
+        System.out.println(String.format("Cluster:\n%s: %s", EntityUtils.toString(response.getEntity()), response.toString()));
 
         server.setExecutor(null);
         server.start();
         System.out.printf("Pipeline Server Initiated. Listening on port %s\n", Config.PM_PORT);
-        System.out.println("\tInteracting with ES server at: " + es_slave_pipelines.getESSLocation());
+        System.out.println("\tInteracting with ES server at: " + String.format("%s://%s:%s/%s", Config.ESS_PROTOCOL,
+                Config.ESS_HOST, Config.ESS_PORT, Config.ESS_INDEX));
         System.out.printf("\tLogging In: '%s'\n", Config.PM_LOG_FILE);
+
+    }
+
+
+    @Override
+    protected void finalize() throws Throwable {
+        es_client.close();
+        es_transport_client.close();
     }
 }

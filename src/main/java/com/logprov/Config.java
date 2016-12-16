@@ -25,6 +25,7 @@ public class Config {
     public static final String ESS_PROTOCOL = "http";
     public static final String ESS_HOST = "localhost";
     public static final String ESS_PORT = "9200";
+    public static final String ESS_TRANSPORT_PORT = "9300";
     public static final String ESS_INDEX = "logprov";
     public static final String ESS_LOG_TYPE = "logs";
     public static final String ESS_PIPELINE_TYPE = "pipelines";

@@ -9,7 +9,7 @@
 REGISTER DemoUDF.jar;
 REGISTER LogProvUDF.jar;
 
-DEFINE InterStore 	com.logprov.pigUDF.InterStore('http://master:58888','d9e490a0-004a-4d40-9b95-7a94b3054de0');
+DEFINE InterStore 	com.logprov.pigUDF.InterStore('http://master:58888','47c8ad62-4824-4cc4-b55a-908e519c6dd2');
 DEFINE Clean 		test.CleanByRep('19');
 DEFINE ConvertTime 	test.ConvertTime();
 DEFINE CalDensity	test.CalculateDensity();

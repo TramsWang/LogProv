@@ -26,8 +26,9 @@ do
 	#pig $PIGLATIN;
 	#cat $LOGFILE | grep '(.*ms)' >> $TIMEFILE;
 
-	pig -x local $PIGLATIN &> $LOGFILE;
-	cat $LOGFILE | grep '(.*ms)';
+	#pig -x local $PIGLATIN &> $LOGFILE;
+	#cat $LOGFILE | grep '(.*ms)';
+	pig -x local $PIGLATIN;
 	
 	curl 'localhost:58888/_terminate' -d \'$PID\';
     done
