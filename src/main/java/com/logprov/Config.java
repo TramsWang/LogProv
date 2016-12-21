@@ -20,6 +20,7 @@ public class Config {
     public static final String CONT_REQUIRE_DATA_STORAGE = "/_reqDS";
     public static final String CONT_EVALUATION = "/_eval";
     public static final String CONT_TERMINATE_PIPELINE = "/_terminate";
+    public static final String CONT_SEARCH = "/_search";
 
     /* Elasticsearch Connection Configurations */
     public static final String ESS_PROTOCOL = "http";

@@ -123,11 +123,11 @@ public class PipelineMonitor {
                 {
                     in.close();
                     String msg = String.format("Invalid PID: '%s'; No such pipeline running currently.", log.pid);
-                    System.err.println(msg);
                     t.sendResponseHeaders(400, msg.getBytes().length);
                     OutputStream out = t.getResponseBody();
                     out.write(msg.getBytes());
                     out.close();
+                    System.err.println("REQDS: " + msg);
                     return;
                 }
 
@@ -208,11 +208,12 @@ public class PipelineMonitor {
                 PipelineRecord precord = pipelines.get(pid);
                 if (null == precord)
                 {
-                    String msg = "Invalid PID: No such pipeline is running currently.\n";
+                    String msg = String.format("Invalid PID '%s': No such pipeline is running currently.\n", pid);
                     t.sendResponseHeaders(400, msg.getBytes().length);
                     OutputStream out = t.getResponseBody();
                     out.write(msg.getBytes());
                     out.close();
+                    System.err.println("TERMINATE:: " + msg);
                     return;
                 }
 
@@ -232,11 +233,12 @@ public class PipelineMonitor {
                 }
                 else
                 {
-                    String msg = "Invalid PID: No such pipeline is found in Elasticsearch<" + pid + ">\n";
+                    String msg = String.format("Invalid PID '%s': No such pipeline is found in Elasticsearch\n", pid);
                     t.sendResponseHeaders(400, msg.getBytes().length);
                     OutputStream out = t.getResponseBody();
                     out.write(msg.getBytes());
                     out.close();
+                    System.err.println("TERMINATE:: " + msg);
                     return;
                 }
 
@@ -368,6 +370,14 @@ public class PipelineMonitor {
 
                 /* Apply Elo-like scoring mechanism onto involved components */
                 Scoring(pid, varname, feed_back);
+
+                /* Return acknowledgement */
+                String msg = String.format("Evaluation for variable '%s' in pipeline '%s' finished. Feedback: %f",
+                        varname, pid, feed_back);
+                t.sendResponseHeaders(200, msg.getBytes().length);
+                out = t.getResponseBody();
+                out.write(msg.getBytes());
+                out.close();
             }
             catch (IOException e)
             {
@@ -386,10 +396,12 @@ public class PipelineMonitor {
                     .setTypes(Config.ESS_LOG_TYPE).setSearchType(SearchType.DFS_QUERY_THEN_FETCH)
                     .setQuery(QueryBuilders.termQuery("pid", pid))
                     .get();
-            for (SearchHit hit : response.getHits().getHits())
+            SearchHit hits[] = response.getHits().getHits();
+            for (SearchHit hit : hits)
             {
                 LogInfo tmpinfo = new LogInfo();
                 tmpinfo.log = gson.fromJson(hit.getSourceAsString(), LogLine.class);
+                tmpinfo.eid = hit.getId();
                 map.put(tmpinfo.log.dstidx, tmpinfo);
                 if (varname.equals(tmpinfo.log.dstvar))
                     info = tmpinfo;
@@ -417,11 +429,75 @@ public class PipelineMonitor {
             /* Update those modified logs */
             for (LogInfo tmpinfo : set)
             {
+                String json = String.format("{\"doc\":{\"score\":%f}}", tmpinfo.log.score);
                 es_client.performRequest("POST", String.format("/%s/%s/%s/_update", Config.ESS_INDEX,
                         Config.ESS_LOG_TYPE, tmpinfo.eid), Collections.<String, String>emptyMap(),
-                        new NStringEntity(gson.toJson(tmpinfo.log), ContentType.APPLICATION_JSON));
+                        new NStringEntity(json, ContentType.APPLICATION_JSON));
             }
         }
+    }
+
+    private class Search implements HttpHandler{
+
+        static final String FOR_DATA = "data";
+        static final String FOR_META = "meta";
+        static final String FOR_SEMANTICS = "semantics";
+
+        public void handle(HttpExchange t)
+        {
+            try
+            {
+                BufferedReader in = new BufferedReader(new InputStreamReader(t.getRequestBody()));
+                String command = in.readLine();
+                if (FOR_DATA.equals(command))
+                {
+                    handleData(t);
+                }
+                else if (FOR_META.equals(command))
+                {
+                    handleMeta(t, in);
+                }
+                else if (FOR_SEMANTICS.equals(command))
+                {
+                    handleSemantics(t);
+                }
+            }
+            catch (Exception e)
+            {
+                e.printStackTrace();
+            }
+        }
+
+        private void handleData(HttpExchange t){};
+
+        private void handleMeta(HttpExchange t, BufferedReader in) throws IOException
+        {
+            String title = "PID,Srcvar,Srcidx,Operation,Dstvar,Dstidx,Score,Start,Finish\n";
+            String pid = in.readLine();
+            in.close();
+            System.out.println(String.format("SEARCH: PID: %s", pid));
+
+            SearchResponse response = es_transport_client.prepareSearch(Config.ESS_INDEX)
+                    .setTypes(Config.ESS_LOG_TYPE).setSearchType(SearchType.DFS_QUERY_THEN_FETCH)
+                    .setQuery(QueryBuilders.termQuery("pid", pid))
+                    .get();
+
+            t.sendResponseHeaders(200, 0);
+            OutputStream out = t.getResponseBody();
+            out.write(title.getBytes());
+
+            for (SearchHit hit : response.getHits().getHits())
+            {
+                String source = hit.getSourceAsString();
+                LogLine log = gson.fromJson(source, LogLine.class);
+                out.write(String.format("%s,\"%s\",\"%s\",%s,\"%s\",\"%s\",%f,%s,%s\n",
+                        log.pid, log.srcvar, log.srcidx, log.operation, log.dstvar, log.dstidx,
+                        log.score, log.start, log.finish).getBytes());
+            }
+            out.close();
+        }
+
+        private void handleSemantics(HttpExchange t){};
     }
 
     //private EsSlave es_slave_logs, es_slave_pipelines;
@@ -451,8 +527,9 @@ public class PipelineMonitor {
         HttpServer server = HttpServer.create(new InetSocketAddress(Integer.valueOf(Config.PM_PORT)), 0);
         HttpContext cont_start = server.createContext(Config.CONT_START_PIPELINE, new Start());
         HttpContext cont_reqds = server.createContext(Config.CONT_REQUIRE_DATA_STORAGE, new ReqDS());
-        //HttpContext cont_eval = server.createContext(Config.CONT_EVALUATION, new Eval(this));
+        HttpContext cont_eval = server.createContext(Config.CONT_EVALUATION, new Evaluate());
         HttpContext cont_terminate = server.createContext(Config.CONT_TERMINATE_PIPELINE, new Terminate());
+        HttpContext cont_search = server.createContext(Config.CONT_SEARCH, new Search());
 
         /* Rebuild ESS Index and Type */
         Response response;
