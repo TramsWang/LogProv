@@ -9,6 +9,7 @@
 /*
 !src/
 !Demo/
+!PigFreeTest/
 !mario.conf
 !pom.xml
 
@@ -16,7 +17,7 @@
 !.gitignore
 !README.md
 
-# Ignore recompliable JARs
+# Ignore recompilable JARs
 Demo/*
 !Demo/DemoUDF.jar
 !Demo/RankingHD.pig
@@ -32,3 +33,17 @@ Demo/Data/*
 !Demo/Data/WifiRankingAns.csv
 !Demo/Data/WifiStatusEg.csv
 !Demo/Data/WifiStatusTotal.csv
+
+# Ignore recompilable targets
+PigFreeTest/FakePig/*
+!PigFreeTest/FakePig/src/
+!PigFreeTest/FakePig/pom.xml
+!PigFreeTest/FakePig/README.md
+!PigFreeTest/FakePig/config.txt
+!PigFreeTest/FakePig/EvalBeforeTerm.txt
+!PigFreeTest/FakePig/EvalAfterTerm.txt
+!PigFreeTest/FakePig/result.csv
+PigFreeTest/SimpleOracle/*
+!PigFreeTest/SimpleOracle/src/
+!PigFreeTest/SimpleOracle/pom.xml
+!PigFreeTest/SimpleOracle/README.md

@@ -1,0 +1,9 @@
+unkown;LOADER;raw
+raw;MEASURE;measured
+raw;CLEANER;cleaned
+measured;COUNTER;count
+cleaned;LEFT;ldata
+cleaned;RIGHT;rdata
+count,ldata;AGGRETATOR;aggregated
+count,ldata;COMBINE;combined
+ldata,rdata;MATCH;matched
