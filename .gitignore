@@ -39,10 +39,6 @@ PigFreeTest/FakePig/*
 !PigFreeTest/FakePig/src/
 !PigFreeTest/FakePig/pom.xml
 !PigFreeTest/FakePig/README.md
-!PigFreeTest/FakePig/config.txt
-!PigFreeTest/FakePig/EvalAfterTerm.txt
-!PigFreeTest/FakePig/EvalBeforeTerm.txt
-!PigFreeTest/FakePig/result.csv
 PigFreeTest/SimpleOracle/*
 !PigFreeTest/SimpleOracle/src/
 !PigFreeTest/SimpleOracle/pom.xml
