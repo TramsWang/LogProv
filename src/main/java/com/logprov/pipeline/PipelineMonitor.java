@@ -468,36 +468,107 @@ public class PipelineMonitor {
             }
         }
 
-        private void handleData(HttpExchange t){};
+        private void handleData(HttpExchange t, BufferedReader in)
+        {
+            ;
+            /* Get result info */
+
+            /* Classify logs and pipelines */
+        }
 
         private void handleMeta(HttpExchange t, BufferedReader in) throws IOException
         {
-            String title = "PID,Srcvar,Srcidx,Operation,Dstvar,Dstidx,Score,Start,Finish\n";
-            String pid = in.readLine();
-            in.close();
-            System.out.println(String.format("SEARCH: PID: %s", pid));
+            String log_title = "PID,Srcvar,Srcidx,Operation,Dstvar,Dstidx,Score,Start,Finish\n";
+            String pipeline_title = "PID,HDFS-Path,Info,Start,Finish\n";
+            ArrayList<ESResponse.Source> logs_meta = new ArrayList<ESResponse.Source>();
+            ArrayList<ESResponse.Source> pipelines_meta = new ArrayList<ESResponse.Source>();
 
-            SearchResponse response = es_transport_client.prepareSearch(Config.ESS_INDEX)
-                    .setTypes(Config.ESS_LOG_TYPE).setSearchType(SearchType.DFS_QUERY_THEN_FETCH)
-                    .setQuery(QueryBuilders.termQuery("pid", pid))
-                    .get();
+            String json = queryThroughSQLPlugin(in);
+
+            /* Integrate returned results */
+            System.out.println(json);
+            ESResponse es_response = gson.fromJson(json, ESResponse.class);
+            for (ESResponse.Hit hit : es_response.hits.hits)
+            {
+                if (!Config.ESS_INDEX.equals(hit._index))
+                {
+                    String msg = String.format("Invalid ES index: '%s'. Should be '%s' in current LogProv configuration."
+                            , hit._index, Config.ESS_INDEX);
+                    t.sendResponseHeaders(400, msg.getBytes().length);
+                    OutputStream out = t.getResponseBody();
+                    out.write(msg.getBytes());
+                    out.close();
+                    return;
+                }
+                if (Config.ESS_LOG_TYPE.equals(hit._type))
+                {
+                    logs_meta.add(hit._source);
+                }
+                else if (Config.ESS_PIPELINE_TYPE.equals(hit._type))
+                {
+                    pipelines_meta.add(hit._source);
+                }
+                else
+                {
+                    String msg = String.format("Invalid ES type: '%s'. Should be '%s' or '%s' in current LogProv configuration."
+                            , hit._type, Config.ESS_LOG_TYPE, Config.ESS_PIPELINE_TYPE);
+                    t.sendResponseHeaders(400, msg.getBytes().length);
+                    OutputStream out = t.getResponseBody();
+                    out.write(msg.getBytes());
+                    out.close();
+                    return;
+                }
+            }
 
             t.sendResponseHeaders(200, 0);
             OutputStream out = t.getResponseBody();
-            out.write(title.getBytes());
-
-            for (SearchHit hit : response.getHits().getHits())
+            out.write(pipeline_title.getBytes());
+            for (ESResponse.Source source : pipelines_meta)
             {
-                String source = hit.getSourceAsString();
-                LogLine log = gson.fromJson(source, LogLine.class);
-                out.write(String.format("%s,\"%s\",\"%s\",%s,\"%s\",\"%s\",%f,%s,%s\n",
-                        log.pid, log.srcvar, log.srcidx, log.operation, log.dstvar, log.dstidx,
-                        log.score, log.start, log.finish).getBytes());
+                out.write(String.format("%s,%s,\"%s\",\"%s\",\"%s\"\n",
+                        source.pid,source.hdfs_path,source.info,source.start,source.finish).getBytes());
+            }
+            out.write('\n');
+            out.write(log_title.getBytes());
+            for (ESResponse.Source source: logs_meta)
+            {
+                out.write(String.format("%s,\"%s\",\"%s\",\"%s\",\"%s\",\"%s\",%f,\"%s\",\"%s\"\n",
+                        source.pid, source.srcvar, source.srcidx, source.operation, source.dstvar, source.dstidx,
+                        source.score, source.start, source.finish).getBytes());
             }
             out.close();
         }
 
         private void handleSemantics(HttpExchange t){};
+
+        private String queryThroughSQLPlugin(BufferedReader in) throws IOException
+        {
+            URL url = new URL(String.format("%s://%s:%s/_sql", Config.ESS_PROTOCOL, Config.ESS_HOST, Config.ESS_PORT));
+            HttpURLConnection con = (HttpURLConnection)url.openConnection();
+            con.setRequestMethod("GET");
+            con.setDoOutput(true);
+            con.setDoInput(true);
+
+            OutputStream out = con.getOutputStream();
+            String line;
+            while (null != (line = in.readLine()))
+            {
+                out.write(line.getBytes());
+            }
+            out.close();
+            in.close();
+
+            int resp_code = con.getResponseCode();
+            if (400 == resp_code || 404 == resp_code) throw new IOException("Query via ES-SQL plugin failed!");
+            String response = "";
+            in = new BufferedReader(new InputStreamReader(con.getInputStream()));
+            while (null != (line = in.readLine()))
+            {
+                response += line;
+            }
+            in.close();
+            return  response;
+        }
     }
 
     //private EsSlave es_slave_logs, es_slave_pipelines;

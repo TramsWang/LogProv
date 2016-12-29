@@ -1,3 +1,0 @@
-PID,Srcvar,Srcidx,Operation,Dstvar,Dstidx,Score,Start,Finish
-0eb42abf-3a61-4de7-a057-7fbe090242f9,unknown,LOAD,LOADER,raw,4a80292a-9289-4465-be8a-0d0a3a8ed494,0.000000,Wed Dec 21 15:31:52 CST 2016,null
-0eb42abf-3a61-4de7-a057-7fbe090242f9,raw,4a80292a-9289-4465-be8a-0d0a3a8ed494,MEASURE,measured,74edae59-255a-489c-b6ce-f9b987810d9b,0.000000,Wed Dec 21 15:31:52 CST 2016,null
