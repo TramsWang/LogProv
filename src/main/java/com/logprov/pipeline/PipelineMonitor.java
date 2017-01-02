@@ -451,7 +451,7 @@ public class PipelineMonitor {
                 String command = in.readLine();
                 if (FOR_DATA.equals(command))
                 {
-                    handleData(t);
+                    handleData(t, in);
                 }
                 else if (FOR_META.equals(command))
                 {

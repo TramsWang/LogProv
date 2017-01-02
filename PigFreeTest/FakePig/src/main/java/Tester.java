@@ -3,6 +3,7 @@ import org.apache.hadoop.fs.*;
 
 import java.io.*;
 import java.net.HttpURLConnection;
+import java.net.URI;
 import java.net.URL;
 
 /**
@@ -47,8 +48,9 @@ public class Tester {
         conf.addResource(new Path(hd_conf_dir + "/hdfs-site.xml"));
         conf.set("fs.hdfs.impl", org.apache.hadoop.hdfs.DistributedFileSystem.class.getName());
         conf.set("fs.file.impl", LocalFileSystem.class.getName());
-        System.out.println("Connecting to: " + conf.get("fs.defaultFS"));
+        //hdfs = FileSystem.get(URI.create("hdfs://master:8020/"), conf);
         hdfs = FileSystem.get(conf);
+        System.out.println(String.format("Connecting to: %s<should be: %s>", hdfs.getName(), conf.get("fs.defaultFS")));
 
         System.out.println(String.format("TESTER: '%s' initiated.", filename));
 
@@ -98,6 +100,7 @@ public class Tester {
                                 String.format("%s\n%s\n%s\n%s", pid, paras[0], paras[1], paras[2]));
 
                         /* Write to HDFS */
+                        System.out.println("Write to:: " + path);
                         PrintWriter outfile = new PrintWriter(hdfs.create(new Path(path)));
                         outfile.println(paras[3]);
                         outfile.close();
