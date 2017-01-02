@@ -6,6 +6,8 @@ import com.sun.net.httpserver.HttpContext;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpHandler;
 import com.sun.net.httpserver.HttpServer;
+import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.fs.*;
 import org.apache.http.HttpConnection;
 import org.apache.http.HttpHost;
 import org.apache.http.entity.ContentType;
@@ -468,12 +470,117 @@ public class PipelineMonitor {
             }
         }
 
-        private void handleData(HttpExchange t, BufferedReader in)
+        private void handleData(HttpExchange t, BufferedReader in) throws IOException
         {
-            ;
+            String title = "PID,Index,Dstvar,Data\n";
+            HashMap<String, String> pid2hdfspath = new HashMap<String, String>();
+            HashSet<String> exclude = new HashSet<String>();
+            ArrayList<String> paths = new ArrayList<String>();
+            ArrayList<String> infos = new ArrayList<String>();
+
             /* Get result info */
+            String json = queryThroughSQLPlugin(in);
 
             /* Classify logs and pipelines */
+            ESResponse es_response = gson.fromJson(json, ESResponse.class);
+            for (ESResponse.Hit hit : es_response.hits.hits)
+            {
+                if (!Config.ESS_INDEX.equals(hit._index))
+                {
+                    String msg = String.format("Invalid ES index: '%s'. Should be '%s' in current LogProv configuration."
+                            , hit._index, Config.ESS_INDEX);
+                    t.sendResponseHeaders(400, msg.getBytes().length);
+                    OutputStream out = t.getResponseBody();
+                    out.write(msg.getBytes());
+                    out.close();
+                    return;
+                }
+                if (Config.ESS_LOG_TYPE.equals(hit._type))
+                {
+                    continue;
+                }
+                else if (Config.ESS_PIPELINE_TYPE.equals(hit._type))
+                {
+                    exclude.add(hit._source.pid);
+
+                    SearchResponse response = es_transport_client.prepareSearch(Config.ESS_INDEX)
+                            .setTypes(Config.ESS_LOG_TYPE).setSearchType(SearchType.DFS_QUERY_THEN_FETCH)
+                            .setQuery(QueryBuilders.termQuery("pid", hit._source.pid))
+                            .get();
+                    for (SearchHit hit_tmp : response.getHits().getHits())
+                    {
+                        LogLine log = gson.fromJson(hit_tmp.getSourceAsString(), LogLine.class);
+                        paths.add(String.format("%s/%s/%s_%s/", hit._source.hdfs_path, log.pid, log.dstidx, log.dstvar));
+                        infos.add(String.format("%s,\"%s\",\"%s\",", log.pid, log.dstidx, log.dstvar));
+                    }
+                }
+                else
+                {
+                    String msg = String.format("Invalid ES type: '%s'. Should be '%s' or '%s' in current LogProv configuration."
+                            , hit._type, Config.ESS_LOG_TYPE, Config.ESS_PIPELINE_TYPE);
+                    t.sendResponseHeaders(400, msg.getBytes().length);
+                    OutputStream out = t.getResponseBody();
+                    out.write(msg.getBytes());
+                    out.close();
+                    return;
+                }
+            }
+            for (ESResponse.Hit hit : es_response.hits.hits)
+            {
+                if (Config.ESS_LOG_TYPE.equals(hit._type))
+                {
+                    if (!exclude.contains(hit._source.pid))
+                    {
+                        String hdfspath = pid2hdfspath.get(hit._source.pid);
+                        if (null == hdfspath)
+                        {
+                            SearchResponse response = es_transport_client.prepareSearch(Config.ESS_INDEX)
+                                    .setTypes(Config.ESS_PIPELINE_TYPE).setSearchType(SearchType.DFS_QUERY_THEN_FETCH)
+                                    .setQuery(QueryBuilders.termQuery("pid", hit._source.pid))
+                                    .get();
+                            if (0 == response.getHits().getHits().length)
+                            {
+                                String msg = String.format("Invalid PID: '%s'. This PID does not exist.", hit._source.pid);
+                                t.sendResponseHeaders(400, msg.getBytes().length);
+                                OutputStream out = t.getResponseBody();
+                                out.write(msg.getBytes());
+                                out.close();
+                                return;
+                            }
+                            hdfspath = gson.fromJson(response.getHits().hits()[0].getSourceAsString(), PipelineRecord.class).hdfs_path;
+                            pid2hdfspath.put(hit._source.pid, hdfspath);
+                        }
+
+                        paths.add(String.format("%s/%s/%s_%s/", hdfspath, hit._source.pid, hit._source.dstidx, hit._source.dstvar));
+                        infos.add(String.format("%s,\"%s\",\"%s\",", hit._source.pid, hit._source.dstidx, hit._source.dstvar));
+                    }
+                }
+            }
+
+            /* Construct paths and read files */
+            t.sendResponseHeaders(200, 0);
+            OutputStream out = t.getResponseBody();
+            out.write(title.getBytes());
+
+            int len = paths.size();
+            for (int i = 0; i < len; i++)
+            {
+                String data = "";
+
+                FileStatus[] file_status = hdfs.listStatus(new Path(paths.get(i)));
+                for (int j = 0; j < file_status.length; j++)
+                {
+                    if (!file_status[j].isDirectory())
+                    {
+                        BufferedReader reader = new BufferedReader(new InputStreamReader(hdfs.open(file_status[j].getPath())));
+                        String line;
+                        while (null != (line = reader.readLine()))
+                            data += line;
+                    }
+                    out.write((infos.get(i) + data +'\n').getBytes());
+                }
+            }
+            out.close();
         }
 
         private void handleMeta(HttpExchange t, BufferedReader in) throws IOException
@@ -486,7 +593,6 @@ public class PipelineMonitor {
             String json = queryThroughSQLPlugin(in);
 
             /* Integrate returned results */
-            System.out.println(json);
             ESResponse es_response = gson.fromJson(json, ESResponse.class);
             for (ESResponse.Hit hit : es_response.hits.hits)
             {
@@ -577,6 +683,7 @@ public class PipelineMonitor {
     private HashMap<String, PipelineRecord> pipelines;
     private Gson gson;
     private PrintWriter log_file;
+    private FileSystem hdfs;
 
     public PipelineMonitor() throws IOException
     {
@@ -590,6 +697,19 @@ public class PipelineMonitor {
         pipelines = new HashMap<String, PipelineRecord>();
         gson = new Gson();
         log_file = new PrintWriter(Config.PM_LOG_FILE);
+
+
+        String hd_conf_dir = System.getenv("HADOOP_CONF_DIR");
+        //if (null == hd_conf_dir) throw new IOException("Environment variable 'HADOOP_CONF_DIR' not set!!");
+        hd_conf_dir = "/home/tramswang/hadoop-2.7.2/etc/hadoop";
+        Configuration conf = new Configuration();
+        conf.addResource(new Path(hd_conf_dir + "/core-site.xml"));
+        conf.addResource(new Path(hd_conf_dir + "/hdfs-site.xml"));
+        conf.set("fs.hdfs.impl", org.apache.hadoop.hdfs.DistributedFileSystem.class.getName());
+        conf.set("fs.file.impl", LocalFileSystem.class.getName());
+        //hdfs = FileSystem.get(URI.create("hdfs://master:8020/"), conf);
+        hdfs = FileSystem.get(conf);
+        System.out.println(String.format("Connecting to: %s<should be: %s>", hdfs.getName(), conf.get("fs.defaultFS")));
     }
 
     public void initiate() throws IOException
