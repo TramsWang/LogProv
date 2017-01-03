@@ -461,7 +461,7 @@ public class PipelineMonitor {
                 }
                 else if (FOR_SEMANTICS.equals(command))
                 {
-                    handleSemantics(t);
+                    handleSemantics(t, in);
                 }
             }
             catch (Exception e)
@@ -645,7 +645,63 @@ public class PipelineMonitor {
             out.close();
         }
 
-        private void handleSemantics(HttpExchange t){};
+        private void handleSemantics(HttpExchange t, BufferedReader in) throws IOException
+        {
+            /* List all PIDs */
+            String json = queryThroughSQLPlugin(in);
+            HashSet<String> pids = new HashSet<String>();
+
+            ESResponse es_response = gson.fromJson(json, ESResponse.class);
+            for (ESResponse.Hit hit : es_response.hits.hits)
+            {
+                if (!Config.ESS_INDEX.equals(hit._index))
+                {
+                    String msg = String.format("Invalid ES index: '%s'. Should be '%s' in current LogProv configuration."
+                            , hit._index, Config.ESS_INDEX);
+                    t.sendResponseHeaders(400, msg.getBytes().length);
+                    OutputStream out = t.getResponseBody();
+                    out.write(msg.getBytes());
+                    out.close();
+                    return;
+                }
+                if (Config.ESS_LOG_TYPE.equals(hit._type) || Config.ESS_PIPELINE_TYPE.equals(hit._type))
+                {
+                    pids.add(hit._source.pid);
+                }
+                else
+                {
+                    String msg = String.format("Invalid ES type: '%s'. Should be '%s' or '%s' in current LogProv configuration."
+                            , hit._type, Config.ESS_LOG_TYPE, Config.ESS_PIPELINE_TYPE);
+                    t.sendResponseHeaders(400, msg.getBytes().length);
+                    OutputStream out = t.getResponseBody();
+                    out.write(msg.getBytes());
+                    out.close();
+                    return;
+                }
+            }
+
+            /* Integrate semantics for each PID */
+            String title = "Srcvar,Operation,Dstvar\n";
+            t.sendResponseHeaders(200, 0);
+            OutputStream out = t.getResponseBody();
+
+            for (String pid : pids)
+            {
+                SearchResponse response = es_transport_client.prepareSearch(Config.ESS_INDEX)
+                        .setTypes(Config.ESS_LOG_TYPE).setSearchType(SearchType.DFS_QUERY_THEN_FETCH)
+                        .setQuery(QueryBuilders.termQuery("pid", pid))
+                        .get();
+
+                out.write(String.format("PID,%s\n%s", pid,title).getBytes());
+                for (SearchHit hit : response.getHits().getHits())
+                {
+                    LogLine log = gson.fromJson(hit.getSourceAsString(), LogLine.class);
+                    out.write(String.format("\"%s\",\"%s\",\"%s\"\n", log.srcvar, log.operation, log.dstvar).getBytes());
+                }
+                out.write('\n');
+            }
+            out.close();
+        }
 
         private String queryThroughSQLPlugin(BufferedReader in) throws IOException
         {
