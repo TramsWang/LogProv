@@ -13,7 +13,7 @@
 !mario.conf
 !pom.xml
 
-# Track meta files
+# Track meta files #remember: No need to add IntelliJ meta files(.idea, ***.iml) because IDE will regenerate for you
 !.gitignore
 !README.md
 
