@@ -4,7 +4,7 @@ Some detailed parameters:
      1. Java version: Oracle JAVA 8
      2. Elasticsearch version: 5.1.1(With plugein: sql)
      3. Hadoop version:
-     4. Pig version:
+     4. Pig version: 0.16
 
 
 Main contactor:
