@@ -12,6 +12,7 @@
 !PigFreeTest/
 !mario.conf
 !pom.xml
+!LogProvReport.pdf
 
 # Track meta files #remember: No need to add IntelliJ meta files(.idea, ***.iml) because IDE will regenerate for you
 !.gitignore
