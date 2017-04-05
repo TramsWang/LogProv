@@ -5,13 +5,14 @@ import java.lang.reflect.Modifier;
 import java.util.HashMap;
 
 /**
- * Created by babyfish on 16-10-26.
+ * Created by:  Ruoyu Wang
+ * Date:        2017.04.05
+ *
+ *   System config parameters.
  */
 public class Config {
 
-    /**
-     * Default Configurations
-     */
+    /* Default Configurations */
     public static final String PM_PORT = "58888";
     public static final String PM_LOG_FILE = "PipelineMonitor.log";
     public static final String PID_FILE = "pid.txt";
@@ -43,6 +44,7 @@ public class Config {
 
     private HashMap<String, String> pool;
 
+    /* Construct a config object and load all constants into a map */
     public Config() throws IllegalAccessException
     {
         pool = new HashMap<String, String>();
@@ -58,5 +60,24 @@ public class Config {
                 pool.put(f.getName(), (String)f.get(this));
             }
         }
+    }
+
+    /* TODO: Read a configuration file and modify default parameters */
+    public void loadFile(String path)
+    {
+        ;
+    }
+
+    /* TODO: Change all public constant to private.*/
+    /* TODO: And modify all codes elsewhere to use variables in the pool instead */
+    public String get(String var)
+    {
+        return pool.get(var);
+    }
+
+    /* TODO: Show all paras */
+    public void show()
+    {
+        ;
     }
 }
