@@ -65,12 +65,17 @@ import org.apache.pig.impl.util.Utils;
 import org.apache.pig.parser.ParserException;
 
 /**
- * Created by tramswang on 17-1-16.
+ * Created by:  Ruoyu Wang
+ * Date:        2017.04.05
+ *
+ *   LogProv loader class. Load data, assign pipeline execution ID and tell PM about the loading
+ * specification.
+ *
+ * TODO: Combine Load and Store into one class.
  */
 public class ProvLoader extends LoadFunc {
 
     protected RecordReader in = null;
-    protected RecordWriter writer = null;
     protected final Log mLog = LogFactory.getLog(getClass());
     protected String signature;
 
@@ -155,8 +160,6 @@ public class ProvLoader extends LoadFunc {
             dontLoadSchema = configuredOptions.hasOption("noschema");
             tagFile = configuredOptions.hasOption(TAG_SOURCE_FILE);
             tagPath = configuredOptions.hasOption(TAG_SOURCE_PATH);
-            // TODO: Remove -tagsource in 0.13. For backward compatibility, we
-            // need tagsource to be supported until at least 0.12
             if (configuredOptions.hasOption("tagsource")) {
                 mLog.warn("'-tagsource' is deprecated. Use '-tagFile' instead.");
                 tagFile = true;
@@ -230,6 +233,8 @@ public class ProvLoader extends LoadFunc {
 
     /*
      *   Lazy method to connect to PM and acquire PID.
+     *
+     * TODO: How to upload 'srcidx'?
      */
     public Tuple getNext() throws IOException
     {
