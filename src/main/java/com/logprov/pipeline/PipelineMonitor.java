@@ -207,6 +207,7 @@ public class PipelineMonitor {
                     out.close();
 
                     /* Complete LogLine(srcidx) and write to ESS */
+                    /* TODO: Use srcidx transmitted from loader */
                     String srcvars[] = log.srcvar.split(",");
                     boolean first = true;
                     for (String tmpsrcvar : srcvars)
