@@ -14,18 +14,17 @@ import java.net.HttpURLConnection;
 import java.net.URL;
 
 /**
- * @author Trams Wang
- * @version 2.1
- * Date: Apr. 25, 2016
+ * @author Ruoyu Wang
+ * @version 3.0
+ * Date: Apr. 05, 2017
  *
  *   Provenance storing function for storing intermediate results. Syntax goes below:
  *
- *   REGISTER InterStore com.nicta.provenance.pigudf.ProvInterStore('protocol', 'host', 'port');
+ *   REGISTER InterStore com.logprov.pigUDF.InterStore('Pipeline_Monitor_URL');
  *   dstvar = FOREACH dstvar GENERATE FLATTEN(InterStore('srcvar', 'processor', 'dstvar', *));
  *
  *   Where, you should always initialize this function via Pig Latin macro definition, providing it with proper address
- * information about pipeline server, otherwise the function will adopt default configurations, which may sometimes be
- * wrong; 'dstvar' is the relation that's going to be stored, we suggest using same relation name when applying this
+ * information about pipeline monitor. 'dstvar' is the relation that's going to be stored, we suggest using same relation name when applying this
  * operation for the sake of performance and correctness; 'srcvar' is a string denotes the source variable, if there's
  * more than one, all source variable names are separated by ','; 'processor' stands for the user specified name for
  * this procedure; 'dstvar' is the name of the variable user would like to store data from; last asterisk is compulsory
@@ -33,7 +32,7 @@ import java.net.URL;
  *
  *   This function shall always be used inside a FLATTEN operator, as shown in the example below:
  *   E.g.
- *   REGISTER InterStore com.nicta.provenance.pigudf.ProvInterStore('http', 'localhost', '8888');
+ *   REGISTER InterStore com.logprov.pigUDF.InterStore('http://localhost:8888');
  *   ...
  *   dstvar = JOIN srcvar1 BY $0, srcvar2 BY $0;
  *   dstvar = FOREACH dstvar GENERATE FLATTEN(InterStore('srcvar1,srcvar2', 'Example', 'dstvar', *));
