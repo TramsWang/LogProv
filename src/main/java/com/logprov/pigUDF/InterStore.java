@@ -52,13 +52,33 @@ public class InterStore extends EvalFunc<Tuple>{
     /**
      *   Put to public only initializer with parameters.
      */
-    public InterStore(String pm_url, String pid)
+    public InterStore(String pm_url, String pid) throws IOException
     {
         file = null;
         lines = -1;
         ps_location = pm_url;
         hdfs = null;
         this.pid = pid + '\n';
+
+        /* Get HDFS connection */
+        String hd_conf_dir = System.getenv("HADOOP_CONF_DIR");
+        if (null == hd_conf_dir) throw new IOException("Environment variable 'HADOOP_CONF_DIR' not set!!");
+        Configuration conf = new Configuration();
+        conf.addResource(new Path(hd_conf_dir + "/core-site.xml"));
+        conf.addResource(new Path(hd_conf_dir + "/hdfs-site.xml"));
+        conf.set("fs.hdfs.impl", org.apache.hadoop.hdfs.DistributedFileSystem.class.getName());
+        conf.set("fs.file.impl", LocalFileSystem.class.getName());
+        System.out.println("INTER:: Connecting to: " + conf.get("fs.defaultFS"));
+        hdfs = FileSystem.get(conf);
+
+        if (!hdfs.exists(new Path(Config.PID_FILE)))
+            throw new IOException(String.format("PID file: '%s' not found!", Config.PID_FILE));
+        BufferedReader pidfile = new BufferedReader(new InputStreamReader(hdfs.open(new Path(Config.PID_FILE))));
+        String tmp_pid = pidfile.readLine();
+        System.out.println("<<<READ PID>>>:" + tmp_pid);
+        pidfile.close();
+        hdfs = FileSystem.get(conf);
+        this.pid = tmp_pid + '\n';
     }
 
     /**
@@ -99,6 +119,7 @@ public class InterStore extends EvalFunc<Tuple>{
             BufferedReader in = new BufferedReader(new InputStreamReader(con.getInputStream()));
             String storage_path = in.readLine();
             in.close();
+            System.out.println("INTER::<<<PATH>>>"+storage_path);
 
             /* Get HDFS connection */
             String hd_conf_dir = System.getenv("HADOOP_CONF_DIR");
@@ -112,6 +133,7 @@ public class InterStore extends EvalFunc<Tuple>{
 
             hdfs = FileSystem.get(conf);
             file = new PrintWriter(hdfs.create(new Path(storage_path)));
+            file = new PrintWriter(storage_path);
             lines = 0;
         }
 

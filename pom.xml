@@ -8,18 +8,27 @@
     <artifactId>LogProv</artifactId>
     <version>1.0</version>
 
+    <repositories>
+        <repository>
+            <id>Cloudera Repository</id>
+            <name>Cloudera Repository</name>
+            <url>https://repository.cloudera.com/content/repositories/releases/</url>
+            <layout>default</layout>
+        </repository>
+    </repositories>
+
     <dependencies>
         <dependency>
             <groupId>org.apache.pig</groupId>
             <artifactId>pig</artifactId>
             <version>0.16.0</version>
         </dependency>
-
-        <!--<dependency>
+        <!-- https://mvnrepository.com/artifact/org.apache.hadoop/hadoop-core -->
+        <dependency>
             <groupId>org.apache.hadoop</groupId>
             <artifactId>hadoop-core</artifactId>
-            <version>2.6.0-mr1-cdh5.3.6</version>
-        </dependency>-->
+            <version>2.6.0-mr1-cdh5.10.0</version>
+        </dependency>
         <dependency>
             <groupId>org.apache.hadoop</groupId>
             <artifactId>hadoop-common</artifactId>
@@ -64,7 +73,7 @@
                 <configuration>
                     <archive>
                         <manifest>
-                            <mainClass>com.mario.Mario</mainClass>
+                            <mainClass>com.logprov.LogProv</mainClass>
                         </manifest>
                     </archive>
                     <descriptorRefs>

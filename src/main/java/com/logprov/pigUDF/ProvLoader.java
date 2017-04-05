@@ -1,11 +1,11 @@
 package com.logprov.pigUDF;
 
-import java.io.IOException;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.List;
-import java.util.Properties;
+import java.io.*;
+import java.net.HttpURLConnection;
+import java.net.URL;
+import java.util.*;
 
+import com.logprov.Config;
 import org.apache.commons.cli.CommandLine;
 import org.apache.commons.cli.CommandLineParser;
 import org.apache.commons.cli.GnuParser;
@@ -17,6 +17,7 @@ import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FileSystem;
+import org.apache.hadoop.fs.LocalFileSystem;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.io.Text;
 import org.apache.hadoop.io.compress.BZip2Codec;
@@ -101,6 +102,7 @@ public class ProvLoader extends LoadFunc {
     /* Paras for LogProv only */
     private String pipeline_monitor_location = null;
     private String pid = null;
+    public UDFContext udfc = UDFContext.getUDFContext();
 
 
     //--------------------------------------------------------------------------------------------------------------//
@@ -121,7 +123,66 @@ public class ProvLoader extends LoadFunc {
         return validOptions;
     }
 
-    public ProvLoader(String dstvar, String pm_location, String delimiter, String options) {
+    public ProvLoader(String dstvar, String pm_location, String hdfspath, String info) throws IOException
+    {
+        this(dstvar, pm_location, hdfspath, info, ",", "");
+    }
+
+    public ProvLoader(String dstvar, String pm_location, String hdfspath, String info,
+                      String delimiter, String options) throws IOException {
+        System.out.println(String.format("<<NEW LOADER>>:%s,%s", dstvar, pm_location));
+        this.pipeline_monitor_location = pm_location;
+
+        System.out.println("---------------------------------");
+        /* Get HDFS connection */
+        String hd_conf_dir = System.getenv("HADOOP_CONF_DIR");
+        if (null == hd_conf_dir) throw new IOException("Environment variable 'HADOOP_CONF_DIR' not set!!");
+        Configuration conf = new Configuration();
+        conf.addResource(new Path(hd_conf_dir + "/core-site.xml"));
+        conf.addResource(new Path(hd_conf_dir + "/hdfs-site.xml"));
+        conf.set("fs.hdfs.impl", org.apache.hadoop.hdfs.DistributedFileSystem.class.getName());
+        conf.set("fs.file.impl", LocalFileSystem.class.getName());
+        System.out.println("LOADER:: Connecting to: " + conf.get("fs.defaultFS"));
+
+        FileSystem hdfs = FileSystem.get(conf);
+
+         if (!hdfs.exists(new Path(Config.PID_FILE)))
+         {
+             URL url = new URL(String.format("%s%s", pm_location, Config.CONT_START_PIPELINE));
+             HttpURLConnection con = (HttpURLConnection)url.openConnection();
+             con.setRequestMethod("PUT");
+             con.setDoInput(true);
+             con.setDoOutput(true);
+             OutputStream out = con.getOutputStream();
+             out.write((hdfspath+'\n').getBytes());
+             out.write(info.getBytes());
+             con.getOutputStream().close();
+             int respcode = con.getResponseCode();
+             if (400 == respcode) throw new IOException("LOADER:: PM PUT Error!");
+             pid = new BufferedReader(new InputStreamReader(con.getInputStream())).readLine();
+
+             PrintWriter writer = new PrintWriter(hdfs.create(new Path(Config.PID_FILE)));
+             writer.println(pid);
+             writer.flush();
+             System.out.println("<<NEW PID>>:"+pid);
+             writer.close();
+         }
+
+        System.out.println("---------------------------------");
+
+        /*
+        Properties p = udfc.getClientSystemProps();
+        if (null == p.get("PipelineID"))
+        {
+            pid = dstvar;
+            System.out.println("<<NEW PID>>:"+pid);
+            p.setProperty("PipelineID", pid);
+        }
+        else
+        {
+            System.out.println("<<PID EXISTED>>:"+p.get("PipelineID"));
+        }*/
+
         fieldDel = StorageUtil.parseFieldDel(delimiter);
         Options validOptions = populateValidOptions();
         String[] optsArr = options.split(" ");

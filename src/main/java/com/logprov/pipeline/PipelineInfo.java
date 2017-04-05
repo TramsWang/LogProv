@@ -11,6 +11,7 @@ public class PipelineInfo {
     public String info;
     public String start;
     public String finish;
+    public String status;
 
     public PipelineInfo()
     {
@@ -19,5 +20,6 @@ public class PipelineInfo {
         info = null;
         start = null;
         finish = null;
+        status = null;
     }
 }

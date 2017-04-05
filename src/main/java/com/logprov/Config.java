@@ -14,6 +14,13 @@ public class Config {
      */
     public static final String PM_PORT = "58888";
     public static final String PM_LOG_FILE = "PipelineMonitor.log";
+    public static final String PID_FILE = "pid.txt";
+
+    /* Pipeline Status */
+    public static final String PSTATUS_STARTED = "STARTED";
+    public static final String PSTATUS_RUNNING = "RUNNING";
+    public static final String PSTATUS_SUCCEEDED = "SUCCEEDED";
+    public static final String PSTATUS_FAILED = "FAILED";
 
     /* API Contexts */
     public static final String CONT_START_PIPELINE = "/_start";

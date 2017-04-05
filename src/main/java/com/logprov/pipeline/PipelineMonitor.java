@@ -33,13 +33,22 @@ import java.net.URL;
 import java.util.*;
 
 /**
- * Created by babyfish on 16-10-26.
+ * Created By:  Ruoyu Wang
+ * Date:        2017.04.05
+ *
+ *   Main server of LogProv system. It stores and monitors executions of all pig pipelines,
+ * responding requests lodged from users to query for pipeline parameters.
  */
 public class PipelineMonitor {
 
+    /*
+     *   Auxiliary structure used for recording allocation information of pipeline intermediate
+     * data generated from Pig Latin variables.
+     */
     private class VarAllocInfo{
-        public String index;
-        public int alloc_num;
+        public String index;    // Variable index
+        public int alloc_num;   // Number of assigned output files recording data held by the
+                                // variable
 
         private VarAllocInfo(){}
 
@@ -50,9 +59,14 @@ public class PipelineMonitor {
         }
     }
 
+    /*
+     *   Auxiliary structure used for recording pipeline execution information, including pipeline
+     * storage path, variables.
+     */
     private class PipelineRecord{
-        String hdfs_path;
-        HashMap<String, VarAllocInfo> vars;
+        String hdfs_path;                   // HDFS path to directories and files recording
+                                            // pipeline intermediate data
+        HashMap<String, VarAllocInfo> vars; // Recorded variables in the execution
 
         private PipelineRecord(){}
 
@@ -63,7 +77,22 @@ public class PipelineMonitor {
         }
     }
 
-
+    /*
+     *   Http handler for requests to start a new pipeline execution. It records pipeline execution
+     * details in memory for later requests, assign an unique ID for this pipeline and return this
+     * PID to user.
+     *
+     * Context URL:
+     *   See "com.logprov.Config.CONT_START_PIPELINE"
+     *
+     * Input(in lines):
+     *   1. HDFS Path
+     *   2. Remarks(Extra info) of the execution
+     *
+     * Ouput(in lines):
+     *   [Respond Code 200]
+     *   1. Pipeline ID(PID)
+     */
     private class Start implements HttpHandler {
 
         public void handle(HttpExchange t)
@@ -78,6 +107,7 @@ public class PipelineMonitor {
                 pinfo.hdfs_path = in.readLine();
                 pinfo.info = in.readLine();
                 pinfo.start = new Date().toString();
+                pinfo.status = Config.PSTATUS_STARTED;
                 in.close();
 
                 /* Send PID back to Pig */
@@ -105,6 +135,27 @@ public class PipelineMonitor {
         }
     }
 
+    /*
+     *   Http handler for requests to allocate a new HDFS path correspond to certain variable to
+     * write down intermediate data generated during pipeline execution. It looks up for variable
+     * allocation information in certain pipeline execution, assign a new path and return it to
+     * user.
+     *
+     * Context URL:
+     *   See "com.logprov.Config.CONT_REQUIRE_DATA_STORAGE"
+     *
+     * Input(in lines):
+     *   1. Pipeline ID(PID)
+     *   2. Source Variable Name
+     *   3. Operation Name
+     *   4. Destination Variable Name
+     *
+     * Output(in liens):
+     *   [Respond Code 200]
+     *   1. A Specific HDFS File Path
+     *
+     * TODO: Modify 'pinfo.status' to 'Config.PSTATUS_RUNNING' and write through into ES
+     */
     private class ReqDS implements HttpHandler {
 
         public void handle(HttpExchange t)
@@ -196,6 +247,22 @@ public class PipelineMonitor {
         }
     }
 
+    /*
+     *   Http handler to terminate a pipeline execution after a pipeline finishes. It modifies
+     * pipeline information in Elasticsearch and remove execution record from memory.
+     *
+     * Context URL:
+     *   See "com.logprov.Config.CONT_TERMINATE_PIPELINE"
+     *
+     * Input(in lines):
+     *   1. Pipeline ID(PID)
+     *
+     * Output(in lines):
+     *   [Respond Code 200]
+     *   None
+     *
+     * TODO: Modify 'pinfo.status' to 'Config.PSTATUS_SUCCEEDED' and write through into ES
+     */
     private class Terminate implements HttpHandler{
 
         public void handle(HttpExchange t)
@@ -258,6 +325,23 @@ public class PipelineMonitor {
         }
     }
 
+    /*
+     *   Http handler to evaluate certain pipeline paths ended by one particular variable. It
+     * looks up the paths from ES and memory, then sends HDFS file path to the oracle and get
+     * an result score, then add the score to all involved components.
+     *
+     * Context URL:
+     *   See "com.logprov.Config.CONT_EVALUATION"
+     *
+     * Input(in lines):
+     *   1. Pipeline ID(PID)
+     *   2. Variable Name
+     *   3. Oracle URL
+     *
+     * Output(in lines):
+     *   [Respond Code 200]
+     *   1. Acknowledge Message String
+     */
     private class Evaluate implements HttpHandler {
 
         private class LogInfo{
@@ -387,6 +471,9 @@ public class PipelineMonitor {
             }
         }
 
+        /*
+         * Simple Elo-like method.
+         */
         private void Scoring(String pid, String varname, double score) throws IOException
         {
             /* Get all component logs */
@@ -439,6 +526,24 @@ public class PipelineMonitor {
         }
     }
 
+    /*
+     *   Http handler to answer search request. It searches from ES and integrate the results and
+     * send back to user.
+     *
+     * Context URL:
+     *   See "com.logprov.Config.CONT_SEARCH"
+     *
+     * Input(in lines):
+     *   1. Search Type: See "this.FOR_DATA", "this.FOR_META", "this.FOR_SEMANTICS"
+     *   2. [Multi-line]SQL Query Script
+     *
+     * Output(in lines):
+     *   1. (1)[DATA][Multi-line]Data Content
+     *      (2)[META][Multi-line]Result CSV File
+     *      (3)[SEMANTICS][Multi-line]Result CSV file
+     *
+     * TODO: Modify .csv file title and content: add one column "status" when querying pipeline info
+     */
     private class Search implements HttpHandler{
 
         static final String FOR_DATA = "data";
@@ -733,12 +838,16 @@ public class PipelineMonitor {
         }
     }
 
-    //private EsSlave es_slave_logs, es_slave_pipelines;
+    /* Elasticsearch clients used for ES communication */
     private RestClient es_client;
     private TransportClient es_transport_client;
+    /* Record for all started and running pipelines */
     private HashMap<String, PipelineRecord> pipelines;
+    /* Gson tool to convert between JSON string and Java objects */
     private Gson gson;
+    /* Log file */
     private PrintWriter log_file;
+    /* HDFS connection */
     private FileSystem hdfs;
 
     public PipelineMonitor() throws IOException
@@ -748,16 +857,15 @@ public class PipelineMonitor {
         es_transport_client = new PreBuiltTransportClient(Settings.EMPTY)
                 .addTransportAddress(new InetSocketTransportAddress(InetAddress.getByName(Config.ESS_HOST),
                         Integer.valueOf(Config.ESS_TRANSPORT_PORT)));
-        //es_slave_logs = new EsSlave(Config.ESS_INDEX, Config.ESS_LOG_TYPE, Config.ESS_LOG_MAPPING_FILE);
-        //es_slave_pipelines = new EsSlave(Config.ESS_INDEX, Config.ESS_PIPELINE_TYPE, Config.ESS_PIPELINE_MAPPING_FILE);
         pipelines = new HashMap<String, PipelineRecord>();
         gson = new Gson();
         log_file = new PrintWriter(Config.PM_LOG_FILE);
 
-
+        /* Connect to HDFS */
         String hd_conf_dir = System.getenv("HADOOP_CONF_DIR");
-        //if (null == hd_conf_dir) throw new IOException("Environment variable 'HADOOP_CONF_DIR' not set!!");
-        hd_conf_dir = "/home/tramswang/hadoop-2.7.2/etc/hadoop";
+        if (null == hd_conf_dir)
+            throw new IOException("Environment variable 'HADOOP_CONF_DIR' not set!!");
+        //hd_conf_dir = "/home/tramswang/hadoop-2.7.2/etc/hadoop";
         Configuration conf = new Configuration();
         conf.addResource(new Path(hd_conf_dir + "/core-site.xml"));
         conf.addResource(new Path(hd_conf_dir + "/hdfs-site.xml"));
@@ -768,6 +876,7 @@ public class PipelineMonitor {
         System.out.println(String.format("Connecting to: %s<should be: %s>", hdfs.getName(), conf.get("fs.defaultFS")));
     }
 
+    /* Initiate Server */
     public void initiate() throws IOException
     {
         System.out.println("Pipeline Server Initiating...");
@@ -782,10 +891,8 @@ public class PipelineMonitor {
         Response response;
         try
         {
-            //es_slave_pipelines.deleteIndex();
             response = es_client.performRequest("DELETE", '/' + Config.ESS_INDEX);
             System.out.println(String.format("%s: %s", EntityUtils.toString(response.getEntity()), response.toString()));
-            //es_slave_pipelines.addIndex();
             response = es_client.performRequest("PUT", '/' + Config.ESS_INDEX);
             System.out.println(String.format("%s: %s", EntityUtils.toString(response.getEntity()), response.toString()));
             System.out.println("ESS index: " + Config.ESS_INDEX + " rebuilt");
@@ -794,11 +901,10 @@ public class PipelineMonitor {
         {
             e.printStackTrace();
             System.err.println("ESS index rebuild failed, create new index: " + Config.ESS_INDEX);
-            //es_slave_pipelines.addIndex();
             response = es_client.performRequest("PUT", '/' + Config.ESS_INDEX);
-            System.out.println(String.format("%s: %s", EntityUtils.toString(response.getEntity()), response.toString()));
+            System.err.println(String.format("%s: %s", EntityUtils.toString(response.getEntity()), response.toString()));
         }
-        //es_slave_logs.addType();
+
         BufferedReader in = new BufferedReader(new FileReader(Config.ESS_MAPPING_DIR + '/' + Config.ESS_LOG_MAPPING_FILE));
         String line;
         String mapping_json = "";
@@ -813,7 +919,6 @@ public class PipelineMonitor {
                 new NStringEntity(mapping_json, ContentType.APPLICATION_JSON));
         System.out.println(String.format("%s: %s", EntityUtils.toString(response.getEntity()), response.toString()));
 
-        //es_slave_pipelines.addType();
         in = new BufferedReader(new FileReader(Config.ESS_MAPPING_DIR + '/' + Config.ESS_PIPELINE_MAPPING_FILE));
         mapping_json = "";
         while (null != (line = in.readLine()))
@@ -829,6 +934,7 @@ public class PipelineMonitor {
         response = es_client.performRequest("GET", "/_cat/indices?v");
         System.out.println(String.format("Cluster:\n%s: %s", EntityUtils.toString(response.getEntity()), response.toString()));
 
+        /* Start server */
         server.setExecutor(null);
         server.start();
         System.out.printf("Pipeline Server Initiated. Listening on port %s\n", Config.PM_PORT);
@@ -837,7 +943,6 @@ public class PipelineMonitor {
         System.out.printf("\tLogging In: '%s'\n", Config.PM_LOG_FILE);
 
     }
-
 
     @Override
     protected void finalize() throws Throwable {
