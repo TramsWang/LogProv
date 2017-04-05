@@ -3,7 +3,10 @@ package com.logprov.pipeline;
 import java.util.Date;
 
 /**
- * Created by babyfish on 16-10-26.
+ * Created by:  Ruoyu Wang
+ * Date:        2017.04.05
+ *
+ *   Log structure, containing information about the execution of one Pig operation.
  */
 public class LogLine {
     public String pid;

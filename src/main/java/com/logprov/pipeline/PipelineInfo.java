@@ -3,7 +3,11 @@ package com.logprov.pipeline;
 import java.util.Date;
 
 /**
- * Created by babyfish on 16-10-26.
+ * Created by:  Ruoyu Wang
+ * Date:        2017.04.05
+ *
+ *   Pipeline information structure, containing sufficient fields to record a pipeline execution
+ * history.
  */
 public class PipelineInfo {
     public String pid;
