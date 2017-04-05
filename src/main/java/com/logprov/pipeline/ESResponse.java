@@ -1,7 +1,10 @@
 package com.logprov.pipeline;
 
 /**
- * Created by tramswang on 16-12-29.
+ * Created by:  Ruoyu Wang
+ * Date:        2017.04.05
+ *
+ *   Elasticsearch response structure. Used for reverse from JSON string via Gson.
  */
 public class ESResponse {
 
@@ -11,6 +14,7 @@ public class ESResponse {
         public int failed;
     }
 
+    /* TODO: Is there any way of multi-inheritance to write these code more gracefuly? */
     public class Source{
 
         public String pid;
