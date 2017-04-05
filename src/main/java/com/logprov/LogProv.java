@@ -5,7 +5,10 @@ import com.logprov.pipeline.PipelineMonitor;
 import java.io.IOException;
 
 /**
- * Created by babyfish on 16-10-26.
+ * Created by:  Ruoyu Wang
+ * Date:        2017.04.05
+ *
+ *   Main function of LogProv system.
  */
 public class LogProv {
 
