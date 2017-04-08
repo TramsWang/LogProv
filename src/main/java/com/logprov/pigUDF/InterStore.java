@@ -73,6 +73,7 @@ public class InterStore extends EvalFunc<Tuple>{
         if (null == file)
         {
             System.out.println("INTER:: Create");
+            System.out.flush();
             String srcvar = (String)input.get(0) + '\n';
             String operation = (String)input.get(1) + '\n';
             String varname = (String)input.get(2);
@@ -80,18 +81,19 @@ public class InterStore extends EvalFunc<Tuple>{
             /* Get HDFS connection */
             String hd_conf_dir = System.getenv("HADOOP_CONF_DIR");
             if (null == hd_conf_dir)
-                throw new IOException("Environment variable 'HADOOP_CONF_DIR' not set!!");
+                throw new IOException("INTER:: Environment variable 'HADOOP_CONF_DIR' not set!!");
             Configuration conf = new Configuration();
             conf.addResource(new Path(hd_conf_dir + "/core-site.xml"));
             conf.addResource(new Path(hd_conf_dir + "/hdfs-site.xml"));
             conf.set("fs.hdfs.impl", org.apache.hadoop.hdfs.DistributedFileSystem.class.getName());
             conf.set("fs.file.impl", LocalFileSystem.class.getName());
             System.out.println("INTER:: Connecting to: " + conf.get("fs.defaultFS"));
+            System.out.flush();
             hdfs = FileSystem.get(conf);
 
             /* Open PID file */
             if (!hdfs.exists(new Path(Config.PID_FILE)))
-                throw new IOException(String.format("PID file: '%s' not found!", Config.PID_FILE));
+                throw new IOException(String.format("INTER:: PID file: '%s' not found!", Config.PID_FILE));
             BufferedReader pidfile = new BufferedReader(new InputStreamReader(hdfs.open(new Path(Config.PID_FILE))));
             pid = pidfile.readLine() + '\n';
             pidfile.close();
@@ -116,6 +118,7 @@ public class InterStore extends EvalFunc<Tuple>{
             String storage_path = in.readLine();
             in.close();
             System.out.println("INTER::<<<PATH>>>"+storage_path);
+            System.out.flush();
 
             /* Open output file */
             file = new PrintWriter(hdfs.create(new Path(storage_path)));

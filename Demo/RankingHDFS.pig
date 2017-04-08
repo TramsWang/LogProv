@@ -1,5 +1,5 @@
 -------------------------------------------------------------------------------------------------------------------
--- Use this script to rank wifi hotspot temperature according to 'WifiStatus_20K.csv'.
+-- Use this script to rank wifi hotspot temperature according to 'WifiStatusTotal.csv'.
 -- Data downloaded from 'data.gov.au'.
 --
 -- Date:	2016/3/1
@@ -9,7 +9,7 @@
 REGISTER DemoUDF.jar;
 REGISTER LogProvUDF.jar;
 
-DEFINE InterStore 	com.logprov.pigUDF.InterStore('http://master:58888','47c8ad62-4824-4cc4-b55a-908e519c6dd2');
+DEFINE InterStore 	com.logprov.pigUDF.InterStore('http://localhost:58888');
 DEFINE Clean 		test.CleanByRep('19');
 DEFINE ConvertTime 	test.ConvertTime();
 DEFINE CalDensity	test.CalculateDensity();
@@ -17,7 +17,7 @@ DEFINE CalDensity	test.CalculateDensity();
 --set default_parallel 16;
 
 ---------------------------------------------------------------------------------------------------
-raw = LOAD 'Data/WifiStatusLarge_25.csv' USING PigStorage(',');
+raw = LOAD 'Data/WifiStatusTotal.csv' USING com.logprov.pigUDF.ProvLoader('raw', 'http://localhost:58888', 'Inter', 'info');
 
 cleaned = FILTER (FOREACH raw GENERATE FLATTEN(Clean(*))) BY NOT ($0 MATCHES '');
 cleaned = FOREACH cleaned GENERATE FLATTEN(InterStore('raw', 'Cleanning', 'cleaned', *));
@@ -43,7 +43,7 @@ timed_summed = FOREACH timed_summed GENERATE FLATTEN(InterStore('timed_grouped',
 	AS (LocationID:chararray, TotalDuration:long);
 
 timed_ordered = ORDER timed_summed BY TotalDuration DESC;
-STORE timed_ordered INTO 'timed_ordered' USING PigStorage();
+STORE timed_ordered INTO 'Result/timed_ordered' USING PigStorage();
 
 ---------------------------------------------------------------------------------------------------
 access_grouped = GROUP named BY LocationID;
@@ -55,7 +55,7 @@ access_summed = FOREACH access_summed GENERATE FLATTEN(InterStore('access_groupe
 	AS (LocationID:chararray, TotalAccesses:long);
 
 access_ordered = ORDER access_summed BY TotalAccesses DESC;
-STORE access_ordered INTO 'access_ordered' USING PigStorage();
+--STORE access_ordered INTO 'access_ordered' USING PigStorage();
 
 ---------------------------------------------------------------------------------------------------
 density = JOIN timed_summed BY LocationID, access_summed BY LocationID;
@@ -69,4 +69,4 @@ density_scored = FOREACH density_scored GENERATE FLATTEN(InterStore('density', '
 	AS (Location:chararray, Density:double);
 
 density_ordered = ORDER density_scored BY Density DESC;
-STORE density_ordered INTO 'density_ordered' USING PigStorage();
+--STORE density_ordered INTO 'density_ordered' USING PigStorage();
