@@ -21,6 +21,7 @@
 # Ignore recompilable JARs
 Demo/*
 !Demo/DemoUDF.jar
+!Demo/AnswerServer.jar
 !Demo/RankingHD.pig
 !Demo/RankingHDFS.pig
 !Demo/testHDFS.sh
