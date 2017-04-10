@@ -21,10 +21,10 @@ public class Config {
     public static final String PID_FILE = "pid.txt";
 
     /* Pipeline Status */
-    public static final String PSTATUS_STARTED = "STARTED";
-    public static final String PSTATUS_RUNNING = "RUNNING";
-    public static final String PSTATUS_SUCCEEDED = "SUCCEEDED";
-    public static final String PSTATUS_FAILED = "FAILED";
+    //public static final String PSTATUS_STARTED = "STARTED";
+    //public static final String PSTATUS_RUNNING = "RUNNING";
+    //public static final String PSTATUS_SUCCEEDED = "SUCCEEDED";
+    //public static final String PSTATUS_FAILED = "FAILED";
 
     /* API Contexts */
     public static final String CONT_START_PIPELINE = "/_start";

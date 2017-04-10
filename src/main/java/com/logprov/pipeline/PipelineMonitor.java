@@ -38,6 +38,8 @@ import java.util.*;
  *
  *   Main server of LogProv system. It stores and monitors executions of all pig pipelines,
  * responding requests lodged from users to query for pipeline parameters.
+ *
+ * TODO: Test with pipeline status.
  */
 public class PipelineMonitor {
 
@@ -107,7 +109,6 @@ public class PipelineMonitor {
                 pinfo.hdfs_path = in.readLine();
                 pinfo.info = in.readLine();
                 pinfo.start = new Date().toString();
-                pinfo.status = Config.PSTATUS_STARTED;
                 in.close();
 
                 /* Send PID back to Pig */
@@ -153,8 +154,6 @@ public class PipelineMonitor {
      * Output(in liens):
      *   [Respond Code 200]
      *   1. A Specific HDFS File Path
-     *
-     * TODO: Modify 'pinfo.status' to 'Config.PSTATUS_RUNNING' and write through into ES
      */
     private class ReqDS implements HttpHandler {
 
@@ -261,8 +260,6 @@ public class PipelineMonitor {
      * Output(in lines):
      *   [Respond Code 200]
      *   None
-     *
-     * TODO: Modify 'pinfo.status' to 'Config.PSTATUS_SUCCEEDED' and write through into ES
      */
     private class Terminate implements HttpHandler{
 
@@ -303,7 +300,7 @@ public class PipelineMonitor {
                 }
                 else
                 {
-                    String msg = String.format("Invalid PID '%s': No such pipeline is found in Elasticsearch\n", pid);
+                    String msg = String.format("Invalid PID '%s': No such pipeline recorded in Elasticsearch\n", pid);
                     t.sendResponseHeaders(400, msg.getBytes().length);
                     OutputStream out = t.getResponseBody();
                     out.write(msg.getBytes());
@@ -542,8 +539,6 @@ public class PipelineMonitor {
      *   1. (1)[DATA][Multi-line]Data Content
      *      (2)[META][Multi-line]Result CSV File
      *      (3)[SEMANTICS][Multi-line]Result CSV file
-     *
-     * TODO: Modify .csv file title and content: add one column "status" when querying pipeline info
      */
     private class Search implements HttpHandler{
 
