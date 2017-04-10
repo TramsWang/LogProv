@@ -9,6 +9,9 @@ import java.io.IOException;
  * Date:        2017.04.05
  *
  *   Main function of LogProv system.
+ *
+ * TODO: Write a sample case.
+ * TODO: Initiate 'Config' inside PipelineMonitor
  */
 public class LogProv {
 
