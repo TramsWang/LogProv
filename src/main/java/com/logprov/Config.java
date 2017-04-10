@@ -7,8 +7,9 @@ import java.util.HashMap;
 import java.util.Map;
 
 /**
- * Created by:  Ruoyu Wang
- * Date:        2017.04.05
+ * @author  Ruoyu Wang
+ * @version 1.1
+ * Date:    2017.04.10
  *
  *   System config parameters.
  */
@@ -44,19 +45,20 @@ public class Config {
     public static final String ESS_LOG_MAPPING_FILE = "logs.json";
     public static final String ESS_PIPELINE_MAPPING_FILE = "pipelines.json";
 
-    private HashMap<String, String> pool;
-    private String file_path = "./Config.conf";
+    //private HashMap<String, String> pool;
+    //private String file_path = "./Config.conf";
 
     /* Construct a config object and load all constants into a map */
     public Config() throws IllegalAccessException
     {
+        /*
         pool = new HashMap<String, String>();
 
         Field fields[] = Config.class.getFields();
         int mask = Modifier.PUBLIC | Modifier.STATIC | Modifier.FINAL;
         for (Field f : fields)
         {
-            /* Check if the member is "public static final" then add to pool */
+            /* Check if the member is "public static final" then add to pool
             int modifier = f.getModifiers();
             if (mask == (mask & modifier))
             {
@@ -66,11 +68,11 @@ public class Config {
 
         loadFile(file_path);
 
-        show();
+        show();*/
     }
 
     /* Read a configuration file and modify default parameters */
-    public void loadFile(String path)
+    /*public void loadFile(String path)
     {
         String line;
         int cnt = 0;
@@ -117,28 +119,25 @@ public class Config {
         {
             System.err.println(String.format("Error: Broken line in configuration file<line: %d>", cnt));
         }
-    }
+    }*/
 
-    /* TODO: Change all public constant to private.*/
-    /* TODO: And modify all codes elsewhere to use variables in the pool instead */
-    public String get(String var)
+    /*public String get(String var)
     {
         return pool.get(var);
-    }
+    }*/
 
     /* Show all paras */
-    public void show()
+    /*public void show()
     {
         Field fields[] = Config.class.getFields();
         int mask = Modifier.PUBLIC | Modifier.STATIC | Modifier.FINAL;
         for (Field f : fields)
         {
-            /* Check if the member is "public static final" then add to pool */
             int modifier = f.getModifiers();
             if (mask == (mask & modifier))
             {
                 System.out.println(String.format("<%s = %s>", f.getName(), pool.get(f.getName())));
             }
         }
-    }
+    }*/
 }
