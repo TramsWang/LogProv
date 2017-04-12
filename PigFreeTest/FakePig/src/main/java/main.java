@@ -3,7 +3,9 @@ import java.net.HttpURLConnection;
 import java.net.URL;
 
 /**
- * Created by tramswang on 16-12-21.
+ * @author  Ruoyu Wang
+ * @version 1.0
+ * Date     2017.04.12
  */
 public class main {
     public static void main(String[] args) throws Exception

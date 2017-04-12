@@ -1,3 +1,4 @@
+import com.google.gson.Gson;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.*;
 
@@ -5,9 +6,15 @@ import java.io.*;
 import java.net.HttpURLConnection;
 import java.net.URI;
 import java.net.URL;
+import java.util.Date;
 
 /**
- * Created by tramswang on 16-12-29.
+ * @author  Ruoyu Wang
+ * @version 1.1
+ * Date     2017.04.12
+ *
+ * TODO: Modify ReqDS protocol
+ * TODO: Read PM location, Oracle location from configuration file.
  */
 public class Tester {
 
@@ -15,7 +22,6 @@ public class Tester {
     public static final String CMD_EVALULATE = "eval:";
     public static final String CMD_TERMINATE = "term:";
     public static final String CMD_SEARCH = "search:";
-    public static final String ORACLE_ADDR = "http://slave2:59999";
 
     private static final int ST_START = 0;
     private static final int ST_CONFIG = 1;
@@ -30,6 +36,9 @@ public class Tester {
     private String pid;
     private Thread t;
     private FileSystem hdfs;
+    private String pmlocation;
+    private String oraclelocation;
+    private Gson gson;
 
     private Tester(){}
 
@@ -40,9 +49,14 @@ public class Tester {
         running = true;
         linenum = 0;
         t = new Thread();
+        pmlocation = in.readLine();
+        oraclelocation = in.readLine();
+        gson = new Gson();
 
         String hd_conf_dir = System.getenv("HADOOP_CONF_DIR");
-        if (null == hd_conf_dir) throw new IOException("Environment variable 'HADOOP_CONF_DIR' not set!!");
+        hd_conf_dir = "/home/trams/hadoop-2.7.2";  //for debugging only
+        if (null == hd_conf_dir)
+            throw new IOException("Environment variable 'HADOOP_CONF_DIR' not set!!");
         Configuration conf = new Configuration();
         conf.addResource(new Path(hd_conf_dir + "/core-site.xml"));
         conf.addResource(new Path(hd_conf_dir + "/hdfs-site.xml"));
@@ -56,7 +70,7 @@ public class Tester {
 
         String hdfs_path = in.readLine();
         String remarks = in.readLine();
-        pid = simpleHttpRequest("http://master:58888/_start", "GET", String.format("%s\n%s", hdfs_path, remarks));
+        pid = simpleHttpRequest(pmlocation + "/_start", "GET", String.format("%s\n%s", hdfs_path, remarks));
         System.out.println("--------------------STARTED--------------------------\n");
     }
 
@@ -83,34 +97,41 @@ public class Tester {
                 {
                     if (!"".equals(line))
                     {
-                        String paras[] = line.split(";;");  //srcvar;;operation;;dstvar;;data
-                        if (4 < paras.length)
+                        String paras[] = line.split(";;");  //srcvar;;srcidx;;operation;;dstvar;;dstidx;;data
+                        if (6 < paras.length)
                         {
                             System.err.println(String.format("Too many paras in configuration line<%d>, halt", linenum));
                             running = false;
                             break;
                         }
-                        else if (4 > paras.length)
+                        else if (6 > paras.length)
                         {
                             System.err.println(String.format("Too few paras in configuration line<%d>, halt", linenum));
                             running = false;
                             break;
                         }
-                        String path = simpleHttpRequest("http://master:58888/_reqDS", "GET",
-                                String.format("%s\n%s\n%s\n%s", pid, paras[0], paras[1], paras[2]));
+                        LogLine log = new LogLine();
+                        log.pid = pid;
+                        log.srcvar = "".equals(paras[0])?null:paras[0];
+                        log.srcidx = "".equals(paras[1])?null:paras[1];
+                        log.operation = paras[2];
+                        log.dstvar = "".equals(paras[3])?null:paras[3];
+                        log.dstidx = "".equals(paras[4])?null:paras[4];
+                        log.start = new Date().toString();
+                        String path = simpleHttpRequest(pmlocation + "/_reqDS", "GET", gson.toJson(log));
 
                         /* Write to HDFS */
                         System.out.println("Write to:: " + path);
                         PrintWriter outfile = new PrintWriter(hdfs.create(new Path(path)));
-                        outfile.println(paras[3]);
+                        outfile.println(paras[5]);
                         outfile.close();
                     }
                     break;
                 }
                 case ST_EVALUATE:
                 {
-                    simpleHttpRequest("http://master:58888/_eval", "GET",
-                            String.format("%s\n%s\n%s", pid, line, ORACLE_ADDR));
+                    simpleHttpRequest(pmlocation + "/_eval", "GET",
+                            String.format("%s\n%s\n%s", pid, line, oraclelocation));
                     t.sleep(2000);
                     break;
                 }
@@ -132,7 +153,7 @@ public class Tester {
                     {
                         sql += paras[i] + '\n';
                     }
-                    simpleHttpRequest("http://master:58888/_search", "GET", sql, file_out);
+                    simpleHttpRequest(pmlocation + "/_search", "GET", sql, file_out);
                     file_out.close();
                     break;
                 }
@@ -165,7 +186,7 @@ public class Tester {
         {
             System.out.println("--------------------TERMINATE---------------------");
             t.sleep(2000);
-            simpleHttpRequest("http://master:58888/_terminate", "GET", pid);
+            simpleHttpRequest(pmlocation + "/_terminate", "GET", pid);
             state = ST_TERMINATE;
             return true;
         }

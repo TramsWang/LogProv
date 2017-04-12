@@ -1,7 +1,9 @@
 import java.io.IOException;
 
 /**
- * Created by tramswang on 16-12-21.
+ * @author  Ruoyu Wang
+ * @version 1.0
+ * Date     2016.12.21
  */
 public class main {
 

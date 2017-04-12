@@ -293,7 +293,8 @@ public class ProvLoader extends LoadFunc {
             con.setDoInput(true);
             con.setDoOutput(true);
             OutputStream out = con.getOutputStream();
-            log.srcvar = "";
+            log.srcvar = null;
+            log.srcidx = null;
             log.operation = String.format("LOADER_%s", log.srcvar);
             log.start = new Date().toString();
             out.write(new Gson().toJson(log).getBytes());  /* 'pid', 'srcvar', 'operation' and 'start' set above
@@ -380,7 +381,7 @@ public class ProvLoader extends LoadFunc {
     public void setLocation(String location, Job job)
             throws IOException {
         loadLocation = location;
-        log.dstidx = log.srcidx = loadLocation;
+        log.dstidx = loadLocation;
         FileInputFormat.setInputPaths(job, location);
         bzipinput_usehadoops = job.getConfiguration().getBoolean(
                 PigConfiguration.PIG_BZIP_USE_HADOOP_INPUTFORMAT,

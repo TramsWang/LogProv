@@ -164,6 +164,7 @@ public class PipelineMonitor {
                 BufferedReader in = new BufferedReader(new InputStreamReader(t.getRequestBody()));
                 LogLine log = gson.fromJson(in.readLine(), LogLine.class);
                 in.close();
+                boolean from_loader = (null != log.dstidx);
 
                 /* Check validity */
                 PipelineRecord precord = pipelines.get(log.pid);
@@ -184,8 +185,13 @@ public class PipelineMonitor {
                 String storage_path = precord.hdfs_path;
                 if (null == vinfo)
                 {
-                    /* Generate index if variable is not generated from loader */
-                    if (null == log.dstidx)
+                    /* Generate index */
+                    if (from_loader)
+                    {
+                        log.srcidx = "-";
+                        log.srcvar = "-";
+                    }
+                    else
                         log.dstidx = UUID.randomUUID().toString();
 
                     /* Record allocation mapping */
@@ -193,11 +199,11 @@ public class PipelineMonitor {
                     precord.vars.put(log.dstvar, vinfo);
 
                     /* Return storage path */
-                    if (null == log.srcidx)
+                    if (from_loader)
+                        storage_path = log.dstidx;
+                    else
                         storage_path += String.format("/%s/%s_%s/%s", log.pid, log.dstidx, log.dstvar,
                                 "part_" + Integer.toString(vinfo.alloc_num));
-                    else
-                        storage_path = log.srcidx;
                     vinfo.alloc_num++;
                     t.sendResponseHeaders(200, storage_path.getBytes().length);
                     OutputStream out = t.getResponseBody();
@@ -205,7 +211,7 @@ public class PipelineMonitor {
                     out.close();
 
                     /* Complete srcidx if variable is not generated from loader and write to ESS */
-                    if (null == log.srcidx)
+                    if (!from_loader)
                     {
                         String srcvars[] = log.srcvar.split(",");
                         VarAllocInfo tmpvinfo = precord.vars.get(srcvars[0]);
@@ -228,8 +234,8 @@ public class PipelineMonitor {
                 else
                 {
                     /* Return storage path */
-                    if (log.srcidx.equals(log.dstidx))
-                        storage_path = log.srcidx;
+                    if (from_loader)
+                        storage_path = log.dstidx;
                     else
                         storage_path += String.format("/%s/%s_%s/%s", log.pid, vinfo.index, log.dstvar,
                             "part_" + Integer.toString(vinfo.alloc_num));
@@ -239,7 +245,7 @@ public class PipelineMonitor {
                     out.write(storage_path.getBytes());
                     out.close();
                 }
-                System.out.println(String.format("ALLOC: %s, %s, %d\n", log.pid, vinfo.index, vinfo.alloc_num));
+                System.out.println(String.format("ALLOC<%s>: %s, %s, %d\n", log.dstvar, log.pid, vinfo.index, vinfo.alloc_num));
             }
             catch (Exception e)
             {
@@ -297,7 +303,7 @@ public class PipelineMonitor {
                     UpdateRequest request = new UpdateRequest();
                     request.index(Config.ESS_INDEX).type(Config.ESS_PIPELINE_TYPE).id(hits[0].getId())
                             .doc("finish", new Date().toString());
-                    System.out.println("UPDATE: " + es_transport_client.update(request).get().toString());
+                    System.out.println("TERMINATE: " + es_transport_client.update(request).get().toString());
                 }
                 else
                 {
@@ -860,6 +866,7 @@ public class PipelineMonitor {
 
         /* Connect to HDFS */
         String hd_conf_dir = System.getenv("HADOOP_CONF_DIR");
+        hd_conf_dir = "/home/trams/hadoop-2.7.2";  //for debugging only
         if (null == hd_conf_dir)
             throw new IOException("Environment variable 'HADOOP_CONF_DIR' not set!!");
         //hd_conf_dir = "/home/tramswang/hadoop-2.7.2/etc/hadoop";
