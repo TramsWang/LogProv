@@ -12,6 +12,7 @@ import org.apache.pig.data.TupleFactory;
 import java.io.*;
 import java.net.HttpURLConnection;
 import java.net.URL;
+import java.util.Date;
 
 /**
  * @author Ruoyu Wang
@@ -43,7 +44,6 @@ public class InterStore extends EvalFunc<Tuple>{
     private FileSystem hdfs;
     private PrintWriter file;
     private String ps_location;
-    private String pid;
     private int lines;
 
     private InterStore(){}
@@ -74,9 +74,11 @@ public class InterStore extends EvalFunc<Tuple>{
         {
             System.out.println("INTER:: Create");
             System.out.flush();
-            String srcvar = (String)input.get(0) + '\n';
-            String operation = (String)input.get(1) + '\n';
-            String varname = (String)input.get(2);
+            LogLine log = new LogLine();
+            log.srcvar = (String)input.get(0);
+            log.operation = (String)input.get(1);
+            log.dstvar = (String)input.get(2);
+            log.start = new Date().toString();
 
             /* Get HDFS connection */
             String hd_conf_dir = System.getenv("HADOOP_CONF_DIR");
@@ -95,7 +97,7 @@ public class InterStore extends EvalFunc<Tuple>{
             if (!hdfs.exists(new Path(Config.PID_FILE)))
                 throw new IOException(String.format("INTER:: PID file: '%s' not found!", Config.PID_FILE));
             BufferedReader pidfile = new BufferedReader(new InputStreamReader(hdfs.open(new Path(Config.PID_FILE))));
-            pid = pidfile.readLine() + '\n';
+            log.pid = pidfile.readLine();
             pidfile.close();
 
             /* Send parameters and get storage path from PM */
@@ -105,11 +107,8 @@ public class InterStore extends EvalFunc<Tuple>{
             con.setDoInput(true);
             con.setDoOutput(true);
             OutputStream out = con.getOutputStream();
-            out.write(pid.getBytes());
-            out.write(srcvar.getBytes());
-            out.write(operation.getBytes());
-            out.write(varname.getBytes());
-            con.getOutputStream().close();
+            out.write(new Gson().toJson(log).getBytes());
+            out.close();
             int respcode = con.getResponseCode();
             if (400 == respcode)
                 throw new IOException("INTER:: PM PUT Error!");

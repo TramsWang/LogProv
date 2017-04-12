@@ -33,13 +33,14 @@ import java.net.URL;
 import java.util.*;
 
 /**
- * Created By:  Ruoyu Wang
- * Date:        2017.04.05
+ * @author  Ruoyu Wang
+ * @version 3.3
+ * Date:    2017.04.12
  *
  *   Main server of LogProv system. It stores and monitors executions of all pig pipelines,
  * responding requests lodged from users to query for pipeline parameters.
  *
- * TODO: Test with pipeline status.
+ * TODO: Update Pig Free Test
  */
 public class PipelineMonitor {
 
@@ -146,10 +147,9 @@ public class PipelineMonitor {
      *   See "com.logprov.Config.CONT_REQUIRE_DATA_STORAGE"
      *
      * Input(in lines):
-     *   1. Pipeline ID(PID)
-     *   2. Source Variable Name
-     *   3. Operation Name
-     *   4. Destination Variable Name
+     *   1. LogLine JSON string('pid', 'srcvar', 'operation', 'dstvar' and 'start' should already be assigned; so should
+     * 'srcidx' and 'dstidx' if this is from a loader.)
+     *   TODO: Test this
      *
      * Output(in liens):
      *   [Respond Code 200]
@@ -162,11 +162,7 @@ public class PipelineMonitor {
             try
             {
                 BufferedReader in = new BufferedReader(new InputStreamReader(t.getRequestBody()));
-                LogLine log = new LogLine();
-                log.pid = in.readLine();
-                log.srcvar = in.readLine();
-                log.operation = in.readLine();
-                log.dstvar = in.readLine();
+                LogLine log = gson.fromJson(in.readLine(), LogLine.class);
                 in.close();
 
                 /* Check validity */
@@ -188,38 +184,40 @@ public class PipelineMonitor {
                 String storage_path = precord.hdfs_path;
                 if (null == vinfo)
                 {
-                    /* Generate LogLine information */
-                    log.dstidx = UUID.randomUUID().toString();
-                    log.start = new Date().toString();
+                    /* Generate index if variable is not generated from loader */
+                    if (null == log.dstidx)
+                        log.dstidx = UUID.randomUUID().toString();
 
                     /* Record allocation mapping */
                     vinfo = new VarAllocInfo(log.dstidx);
                     precord.vars.put(log.dstvar, vinfo);
 
                     /* Return storage path */
-                    storage_path += String.format("/%s/%s_%s/%s", log.pid, log.dstidx, log.dstvar,
-                            "part_" + Integer.toString(vinfo.alloc_num));
+                    if (null == log.srcidx)
+                        storage_path += String.format("/%s/%s_%s/%s", log.pid, log.dstidx, log.dstvar,
+                                "part_" + Integer.toString(vinfo.alloc_num));
+                    else
+                        storage_path = log.srcidx;
                     vinfo.alloc_num++;
                     t.sendResponseHeaders(200, storage_path.getBytes().length);
                     OutputStream out = t.getResponseBody();
                     out.write(storage_path.getBytes());
                     out.close();
 
-                    /* Complete LogLine(srcidx) and write to ESS */
-                    /* TODO: Use srcidx transmitted from loader */
-                    String srcvars[] = log.srcvar.split(",");
-                    boolean first = true;
-                    for (String tmpsrcvar : srcvars)
+                    /* Complete srcidx if variable is not generated from loader and write to ESS */
+                    if (null == log.srcidx)
                     {
-                        VarAllocInfo tmpvinfo = precord.vars.get(tmpsrcvar);
-                        if (first)
+                        String srcvars[] = log.srcvar.split(",");
+                        VarAllocInfo tmpvinfo = precord.vars.get(srcvars[0]);
+                        if (null == tmpvinfo)
+                            throw new IOException("ReqDS:: Variable processing order violated.");
+                        log.srcidx = tmpvinfo.index;
+                        for (int i = 1; i < srcvars.length; i++)
                         {
-                            log.srcidx = (null == tmpvinfo)?"LOAD":tmpvinfo.index;
-                            first = false;
-                        }
-                        else
-                        {
-                            log.srcidx += ',' + ((null == tmpvinfo) ? "LOAD" : tmpvinfo.index);
+                            tmpvinfo = precord.vars.get(srcvars[i]);
+                            if (null == tmpvinfo)
+                                throw new IOException("ReqDS:: Variable processing order violated.");
+                            log.srcidx += ',' + tmpvinfo.index;
                         }
                     }
 
@@ -230,7 +228,10 @@ public class PipelineMonitor {
                 else
                 {
                     /* Return storage path */
-                    storage_path += String.format("/%s/%s_%s/%s", log.pid, vinfo.index, log.dstvar,
+                    if (log.srcidx.equals(log.dstidx))
+                        storage_path = log.srcidx;
+                    else
+                        storage_path += String.format("/%s/%s_%s/%s", log.pid, vinfo.index, log.dstvar,
                             "part_" + Integer.toString(vinfo.alloc_num));
                     vinfo.alloc_num++;
                     t.sendResponseHeaders(200, storage_path.getBytes().length);

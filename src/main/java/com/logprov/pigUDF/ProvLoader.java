@@ -5,7 +5,9 @@ import java.net.HttpURLConnection;
 import java.net.URL;
 import java.util.*;
 
+import com.google.gson.Gson;
 import com.logprov.Config;
+import com.logprov.pipeline.LogLine;
 import org.apache.commons.cli.CommandLine;
 import org.apache.commons.cli.CommandLineParser;
 import org.apache.commons.cli.GnuParser;
@@ -105,11 +107,10 @@ public class ProvLoader extends LoadFunc {
     private boolean bzipinput_usehadoops ;
 
     /* Paras for LogProv only */
-    private String dstvar = null;
     private String pipeline_monitor_location = null;
     private String hdfspath = null;
     private String info = null;
-    private String pid = null;
+    private LogLine log = new LogLine();
 
     //--------------------------------------------------------------------------------------------------------------//
     private Options populateValidOptions() {
@@ -138,11 +139,10 @@ public class ProvLoader extends LoadFunc {
     /* Initialize parameters for later use */
     public ProvLoader(String dstvar, String pm_location, String hdfspath, String info,
                       String delimiter, String options) throws IOException {
-        this.dstvar = dstvar;
+        this.log.dstvar = dstvar;
         this.pipeline_monitor_location = pm_location;
         this.hdfspath = hdfspath;
         this.info = info;
-        this.pid = null;
 
         fieldDel = StorageUtil.parseFieldDel(delimiter);
         Options validOptions = populateValidOptions();
@@ -234,12 +234,11 @@ public class ProvLoader extends LoadFunc {
     /*
      *   Lazy method to connect to PM and acquire PID.
      *
-     * TODO: How to upload 'srcidx'?
      */
     public Tuple getNext() throws IOException
     {
         /* First execution, check pid and tell PM about loading operation */
-        if (null == pid)
+        if (null == log.pid)
         {
             /* Get HDFS connection */
             String hd_conf_dir = System.getenv("HADOOP_CONF_DIR");
@@ -270,20 +269,20 @@ public class ProvLoader extends LoadFunc {
                 if (400 == respcode)
                     throw new IOException("LOADER:: PM PUT Error!");
                 BufferedReader reader = new BufferedReader(new InputStreamReader(con.getInputStream()));
-                pid = reader.readLine();
+                log.pid = reader.readLine();
                 reader.close();
 
                 PrintWriter writer = new PrintWriter(hdfs.create(new Path(Config.PID_FILE)));
-                writer.println(pid);
+                writer.println(log.pid);
                 writer.flush();
-                System.out.println("LOADER::<<NEW PID>>:"+pid);
+                System.out.println("LOADER::<<NEW PID>>:"+log.pid);
                 writer.close();
             }
             else
             {
                 /* Already got a PID, read */
                 BufferedReader reader = new BufferedReader(new InputStreamReader(hdfs.open(new Path(Config.PID_FILE))));
-                pid = reader.readLine();
+                log.pid = reader.readLine();
                 reader.close();
             }
 
@@ -294,11 +293,13 @@ public class ProvLoader extends LoadFunc {
             con.setDoInput(true);
             con.setDoOutput(true);
             OutputStream out = con.getOutputStream();
-            out.write((pid+'\n').getBytes());
-            out.write('\n');
-            out.write(String.format("LOADER_%s\n", dstvar).getBytes());
-            out.write((dstvar+'\n').getBytes());
-            con.getOutputStream().close();
+            log.srcvar = "";
+            log.operation = String.format("LOADER_%s", log.srcvar);
+            log.start = new Date().toString();
+            out.write(new Gson().toJson(log).getBytes());  /* 'pid', 'srcvar', 'operation' and 'start' set above
+                                                            * 'dstvar' already set in 'ProvLoader'
+                                                            * 'srcidx' and 'dstidx' already set in 'setLocation'*/
+            out.close();
             int respcode = con.getResponseCode();
             if (400 == respcode)
                 throw new IOException("LOADER:: PM PUT Error!");
@@ -379,6 +380,7 @@ public class ProvLoader extends LoadFunc {
     public void setLocation(String location, Job job)
             throws IOException {
         loadLocation = location;
+        log.dstidx = log.srcidx = loadLocation;
         FileInputFormat.setInputPaths(job, location);
         bzipinput_usehadoops = job.getConfiguration().getBoolean(
                 PigConfiguration.PIG_BZIP_USE_HADOOP_INPUTFORMAT,
