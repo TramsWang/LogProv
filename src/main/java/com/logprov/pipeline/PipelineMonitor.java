@@ -147,7 +147,6 @@ public class PipelineMonitor {
      * Input(in lines):
      *   1. LogLine JSON string('pid', 'srcvar', 'operation', 'dstvar' and 'start' should already be assigned; so should
      * 'srcidx' and 'dstidx' if this is from a loader.)
-     *   TODO: Test this
      *
      * Output(in liens):
      *   [Respond Code 200]
@@ -541,7 +540,7 @@ public class PipelineMonitor {
      *   2. [Multi-line]SQL Query Script
      *
      * Output(in lines):
-     *   1. (1)[DATA][Multi-line]Data Content
+     *   1. (1)[DATA][Multi-line]Data Content in CSV format
      *      (2)[META][Multi-line]Result CSV File
      *      (3)[SEMANTICS][Multi-line]Result CSV file
      */
@@ -616,7 +615,10 @@ public class PipelineMonitor {
                     for (SearchHit hit_tmp : response.getHits().getHits())
                     {
                         LogLine log = gson.fromJson(hit_tmp.getSourceAsString(), LogLine.class);
-                        paths.add(String.format("%s/%s/%s_%s/", hit._source.hdfs_path, log.pid, log.dstidx, log.dstvar));
+                        if ("-".equals(log.srcvar))  // Log for loader
+                            paths.add(log.dstidx);
+                        else
+                            paths.add(String.format("%s/%s/%s_%s/", hit._source.hdfs_path, log.pid, log.dstidx, log.dstvar));
                         infos.add(String.format("%s,\"%s\",\"%s\",", log.pid, log.dstidx, log.dstvar));
                     }
                 }
@@ -681,9 +683,9 @@ public class PipelineMonitor {
                         BufferedReader reader = new BufferedReader(new InputStreamReader(hdfs.open(file_status[j].getPath())));
                         String line;
                         while (null != (line = reader.readLine()))
-                            data += line;
+                            data += line + "\\\\";
                     }
-                    out.write((infos.get(i) + data +'\n').getBytes());
+                    out.write((infos.get(i) + "\"" + data +"\"\n").getBytes());
                 }
             }
             out.close();
@@ -864,7 +866,7 @@ public class PipelineMonitor {
 
         /* Connect to HDFS */
         String hd_conf_dir = System.getenv("HADOOP_CONF_DIR");
-        hd_conf_dir = "/home/trams/hadoop-2.7.2";  //for debugging only
+        hd_conf_dir = "/home/trams/hadoop-2.7.2/etc/hadoop";  //for debugging only
         if (null == hd_conf_dir)
             throw new IOException("Environment variable 'HADOOP_CONF_DIR' not set!!");
         //hd_conf_dir = "/home/tramswang/hadoop-2.7.2/etc/hadoop";

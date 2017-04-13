@@ -295,7 +295,7 @@ public class ProvLoader extends LoadFunc {
             OutputStream out = con.getOutputStream();
             log.srcvar = null;
             log.srcidx = null;
-            log.operation = String.format("LOADER_%s", log.srcvar);
+            log.operation = String.format("LOADER_%s", log.dstvar);
             log.start = new Date().toString();
             out.write(new Gson().toJson(log).getBytes());  /* 'pid', 'srcvar', 'operation' and 'start' set above
                                                             * 'dstvar' already set in 'ProvLoader'
