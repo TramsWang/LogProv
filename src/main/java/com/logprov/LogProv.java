@@ -11,16 +11,12 @@ import java.io.IOException;
  *
  *   Main function of LogProv system.
  *
- * TODO: Write a sample case.
+ * TODO: Add function about 'Statistical Distance(Divergence)'
  */
 public class LogProv {
 
-    //private static Config config;
-    //private static PipelineMonitor pm;
-
     public static void main(String args[]) throws Exception
     {
-        //config = new Config();
         PipelineMonitor pm = new PipelineMonitor();
         pm.initiate();
     }
