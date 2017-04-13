@@ -12,9 +12,6 @@ import java.util.Date;
  * @author  Ruoyu Wang
  * @version 1.1
  * Date     2017.04.12
- *
- * TODO: Modify ReqDS protocol
- * TODO: Read PM location, Oracle location from configuration file.
  */
 public class Tester {
 

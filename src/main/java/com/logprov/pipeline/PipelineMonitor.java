@@ -39,8 +39,6 @@ import java.util.*;
  *
  *   Main server of LogProv system. It stores and monitors executions of all pig pipelines,
  * responding requests lodged from users to query for pipeline parameters.
- *
- * TODO: Update Pig Free Test
  */
 public class PipelineMonitor {
 
