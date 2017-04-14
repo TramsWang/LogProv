@@ -264,6 +264,8 @@ public class PipelineMonitor {
      * Output(in lines):
      *   [Respond Code 200]
      *   None
+     *
+     * TODO: Perform Divergence check on every component after terminated.
      */
     private class Terminate implements HttpHandler{
 
@@ -319,11 +321,72 @@ public class PipelineMonitor {
                 /* Return ACK */
                 t.sendResponseHeaders(200, 0);
                 t.getResponseBody().close();
+
+                /* TODO: Perform divergence check */
             }
             catch (Exception e)
             {
                 e.printStackTrace();
             }
+        }
+
+        private void CheckDivergence(PipelineRecord precord)
+        {
+            ;
+        }
+
+        private double JensenShannonDivergence(Object [][] populations)
+        {
+            HashMap<Object, Double> M = new HashMap<Object, Double>();
+            HashMap<Object, Double>[] P = new HashMap[populations.length];
+            for (int i = 0; i < populations.length; i++)
+            {
+                P[i] = new HashMap<Object, Double>();
+            }
+
+            /* Calculate every distribution and the average one */
+            for (int i = 0; i < populations.length; i++)
+            {
+                HashMap<Object, Integer> tmp = new HashMap<Object, Integer>();
+
+                for (Object o : populations[i])
+                {
+                    Integer cnt = tmp.get(o);
+                    if (null == cnt)
+                        tmp.put(o, 1);
+                    else
+                        tmp.put(o, cnt + 1);
+                }
+
+                for (Map.Entry<Object, Integer> entry: tmp.entrySet())
+                {
+                    Double prob = (double)(entry.getValue()) / (double)(populations[i].length);
+                    Object o = entry.getKey();
+                    P[i].put(o, prob);
+                    Double total = M.get(o);
+                    if (null == total)
+                        M.put(o, prob);
+                    else
+                        M.put(o, total + prob);
+                }
+            }
+            for (Map.Entry<Object, Double> entry : M.entrySet())
+            {
+                entry.setValue(entry.getValue() / populations.length);
+            }
+
+            /* Calculate divergence */
+            double d = 0;
+            for (int i = 0; i < populations.length; i++)
+            {
+                for (Map.Entry<Object, Double> entry : P[i].entrySet())
+                {
+                    d += (double)entry.getValue() * Math.log(entry.getValue() / M.get(entry.getKey()));
+                }
+            }
+            d /= populations.length;
+
+            return d;
         }
     }
 
