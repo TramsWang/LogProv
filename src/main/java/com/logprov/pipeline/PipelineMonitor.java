@@ -34,7 +34,7 @@ import java.util.*;
 
 /**
  * @author  Ruoyu Wang
- * @version 3.3
+ * @version 3.4
  * Date:    2017.04.12
  *
  *   Main server of LogProv system. It stores and monitors executions of all pig pipelines,
@@ -76,6 +76,12 @@ public class PipelineMonitor {
             this.hdfs_path = hdfs_path;
             vars = new HashMap<String, VarAllocInfo>();
         }
+    }
+
+    /* TODO: Comments here */
+    private class LogInfo{
+        String eid = null;
+        LogLine log = null;
     }
 
     /*
@@ -265,7 +271,8 @@ public class PipelineMonitor {
      *   [Respond Code 200]
      *   None
      *
-     * TODO: Perform Divergence check on every component after terminated.
+     * TODO: Test Divergence
+     * TODO: Perform some experiments and Improve Divergence
      */
     private class Terminate implements HttpHandler{
 
@@ -322,7 +329,8 @@ public class PipelineMonitor {
                 t.sendResponseHeaders(200, 0);
                 t.getResponseBody().close();
 
-                /* TODO: Perform divergence check */
+                /* Perform divergence check */
+                checkDivergence(pid, precord.hdfs_path);
             }
             catch (Exception e)
             {
@@ -330,12 +338,47 @@ public class PipelineMonitor {
             }
         }
 
-        private void CheckDivergence(PipelineRecord precord)
+        private void checkDivergence(String pid, String hdfs_path) throws Exception
         {
-            ;
+            /* Fetch log entries of all variables from ES */
+            SearchResponse response = es_transport_client.prepareSearch(Config.ESS_INDEX)
+                    .setTypes(Config.ESS_LOG_TYPE).setSearchType(SearchType.DFS_QUERY_THEN_FETCH)
+                    .setQuery(QueryBuilders.termQuery("pid", pid))
+                    .get();
+            SearchHit hits[] = response.getHits().getHits();
+
+            /* Calculate distance on each variable */
+            /* TODO: Handle special case: LOAD */
+            for (SearchHit hit : hits)
+            {
+                /* Fetch historical data, each as one population */
+                LogLine log = gson.fromJson(hit.getSourceAsString(), LogLine.class);
+                String dir_path = String.format("%s/*/*_%s", hdfs_path, log.dstvar);
+                System.out.println("DIVERGENCE:: " + log.dstvar);
+                FileStatus[] dirs = hdfs.globStatus(new Path(dir_path));
+                BufferedReader[][] readers = new BufferedReader[dirs.length][];
+                for (int i = 0; i < dirs.length; i++)
+                {
+                    FileStatus[] files = hdfs.listStatus(dirs[i].getPath());
+                    readers[i] = new BufferedReader[files.length];
+                    for (int j = 0; j < files.length; j++)
+                    {
+                        readers[i][j] = new BufferedReader(new InputStreamReader(hdfs.open(files[j].getPath())));
+                    }
+                }
+                log.distance = String.format("%.4f", JensenShannonDivergence(readers));
+                System.out.println("DISTANCE:: " + log.distance);
+                System.out.println();
+
+                /* Modify distance in ES */
+                UpdateRequest request = new UpdateRequest();
+                request.index(Config.ESS_INDEX).type(Config.ESS_LOG_TYPE).id(hit.getId())
+                        .doc("distance", log.distance);
+                System.out.println("TERMINATE: " + es_transport_client.update(request).get().toString());
+            }
         }
 
-        private double JensenShannonDivergence(Object [][] populations)
+        private double JensenShannonDivergence(BufferedReader[][] populations) throws IOException
         {
             HashMap<Object, Double> M = new HashMap<Object, Double>();
             HashMap<Object, Double>[] P = new HashMap[populations.length];
@@ -349,18 +392,24 @@ public class PipelineMonitor {
             {
                 HashMap<Object, Integer> tmp = new HashMap<Object, Integer>();
 
-                for (Object o : populations[i])
+                int population_cnt = 0;
+                for (BufferedReader reader : populations[i])
                 {
-                    Integer cnt = tmp.get(o);
-                    if (null == cnt)
-                        tmp.put(o, 1);
-                    else
-                        tmp.put(o, cnt + 1);
+                    String line;
+                    while (null != (line = reader.readLine()))
+                    {
+                        population_cnt++;
+                        Integer cnt = tmp.get(line);
+                        if (null == cnt)
+                            tmp.put(line, 1);
+                        else
+                            tmp.put(line, cnt + 1);
+                    }
                 }
 
                 for (Map.Entry<Object, Integer> entry: tmp.entrySet())
                 {
-                    Double prob = (double)(entry.getValue()) / (double)(populations[i].length);
+                    Double prob = (double)(entry.getValue()) / (double)population_cnt;
                     Object o = entry.getKey();
                     P[i].put(o, prob);
                     Double total = M.get(o);
@@ -386,9 +435,23 @@ public class PipelineMonitor {
             }
             d /= populations.length;
 
+            /* Test */
+            for (Map.Entry<Object, Double> entry : M.entrySet()) {
+                System.out.printf("<%s> %f\n", entry.getKey().toString(), entry.getValue());
+            }
+            System.out.println("--Single Array--");
+            for (int i = 0; i < populations.length; i++)
+            {
+                System.out.printf("\nArray: %d:\n", i);
+                for (Map.Entry<Object, Double> entry : P[i].entrySet())
+                {
+                    System.out.printf("<%s> %f\n", entry.getKey().toString(), entry.getValue());
+                }
+            }
             return d;
         }
     }
+
 
     /*
      *   Http handler to evaluate certain pipeline paths ended by one particular variable. It
@@ -408,11 +471,6 @@ public class PipelineMonitor {
      *   1. Acknowledge Message String
      */
     private class Evaluate implements HttpHandler {
-
-        private class LogInfo{
-            String eid;
-            LogLine log;
-        }
 
         public void handle(HttpExchange t)
         {

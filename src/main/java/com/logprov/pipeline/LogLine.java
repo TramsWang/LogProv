@@ -16,6 +16,7 @@ public class LogLine {
     public String dstvar;
     public String dstidx;
     public double score;
+    public String distance;
     public String start;
     public String finish;
 
@@ -28,6 +29,7 @@ public class LogLine {
         dstvar = null;
         dstidx = null;
         score = 0.0;
+        distance = null;
         start = null;
         finish = null;
     }
