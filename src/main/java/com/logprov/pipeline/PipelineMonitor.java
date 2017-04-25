@@ -972,13 +972,13 @@ public class PipelineMonitor {
                         {
                             first = false;
                             line += "\"" +
-                                    ESResponse.class.getDeclaredField(fields[i].getName()).get(source)
+                                    ESResponse.Source.class.getDeclaredField(fields[i].getName()).get(source)
                                     +"\"";
                         }
                         else
                         {
                             line += ',' + "\"" +
-                                    ESResponse.class.getDeclaredField(fields[i].getName()).get(source)
+                                    ESResponse.Source.class.getDeclaredField(fields[i].getName()).get(source)
                                     +"\"";
                         }
                     }
@@ -1000,13 +1000,13 @@ public class PipelineMonitor {
                         {
                             first = false;
                             line += "\"" +
-                                    ESResponse.class.getDeclaredField(fields[i].getName()).get(source)
+                                    ESResponse.Source.class.getDeclaredField(fields[i].getName()).get(source)
                                     +"\"";
                         }
                         else
                         {
                             line += ',' + "\"" +
-                                    ESResponse.class.getDeclaredField(fields[i].getName()).get(source)
+                                    ESResponse.Source.class.getDeclaredField(fields[i].getName()).get(source)
                                     +"\"";
                         }
                     }

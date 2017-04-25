@@ -135,7 +135,7 @@ public class ProvLoader extends LoadFunc {
     public ProvLoader(String dstvar, String column_type, String inspected_columns,
                       String pm_location, String hdfspath, String info) throws IOException
     {
-        this(dstvar, pm_location, column_type, inspected_columns, hdfspath, info, ",", "");
+        this(dstvar, column_type, inspected_columns, pm_location, hdfspath, info, ",", "");
     }
 
     /* Initialize parameters for later use */

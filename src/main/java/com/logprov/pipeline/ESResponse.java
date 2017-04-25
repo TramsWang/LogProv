@@ -24,6 +24,7 @@ public class ESResponse {
         public String dstidx;
         public String column_type;
         public String inspected_columns;
+        public String distance;
         public double score;
         public String start;
         public String finish;
