@@ -12,6 +12,7 @@ import java.io.IOException;
  *   Main function of LogProv system.
  *
  * TODO: Add function about 'Statistical Distance(Divergence)'
+ * TODO: Write new usage example
  */
 public class LogProv {
 

@@ -19,6 +19,8 @@ import java.util.Date;
  * @version 3.0
  * Date: Apr. 05, 2017
  *
+ * TODO: Modify usage and comments for two new parameters[TEST]
+ *
  *   Provenance storing function for storing intermediate results. Syntax goes below:
  *
  *   REGISTER InterStore com.logprov.pigUDF.InterStore('Pipeline_Monitor_URL');
@@ -62,7 +64,9 @@ public class InterStore extends EvalFunc<Tuple>{
      *   $0: 'srcvars'
      *   $1: 'processor'
      *   $2: 'dstvar'
-     *   $3,...: record content
+     *   $3: 'column types'
+     *   $4: 'inspected columns'
+     *   $5,...: record content
      *
      * @param input Source data
      * @return Stored tuple.
@@ -78,6 +82,8 @@ public class InterStore extends EvalFunc<Tuple>{
             log.srcvar = (String)input.get(0);
             log.operation = (String)input.get(1);
             log.dstvar = (String)input.get(2);
+            log.column_type = (String)input.get(3);
+            log.inspected_columns = (String)input.get(4);
             log.start = new Date().toString();
 
             /* Get HDFS connection */
@@ -127,7 +133,7 @@ public class InterStore extends EvalFunc<Tuple>{
 
         Tuple t = TupleFactory.getInstance().newTuple();
         int len = input.size();
-        for (int i = 3; i < len; i++)
+        for (int i = 5; i < len; i++)
         {
             t.append(input.get(i));
         }

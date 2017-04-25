@@ -26,6 +26,8 @@ import org.elasticsearch.search.SearchHit;
 import org.elasticsearch.transport.client.PreBuiltTransportClient;
 
 import java.io.*;
+import java.lang.reflect.Field;
+import java.lang.reflect.Modifier;
 import java.net.HttpURLConnection;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
@@ -78,7 +80,7 @@ public class PipelineMonitor {
         }
     }
 
-    /* TODO: Comments here */
+    /* TODO: Comments here(or put it back to 'Search') */
     private class LogInfo{
         String eid = null;
         LogLine log = null;
@@ -271,8 +273,7 @@ public class PipelineMonitor {
      *   [Respond Code 200]
      *   None
      *
-     * TODO: Test Divergence
-     * TODO: Perform some experiments and Improve Divergence
+     * TODO: Implement Divergence
      */
     private class Terminate implements HttpHandler{
 
@@ -330,7 +331,7 @@ public class PipelineMonitor {
                 t.getResponseBody().close();
 
                 /* Perform divergence check */
-                checkDivergence(pid, precord.hdfs_path);
+                //checkDivergence(pid, precord.hdfs_path);
             }
             catch (Exception e)
             {
@@ -347,8 +348,8 @@ public class PipelineMonitor {
                     .get();
             SearchHit hits[] = response.getHits().getHits();
 
+
             /* Calculate distance on each variable */
-            /* TODO: Handle special case: LOAD */
             for (SearchHit hit : hits)
             {
                 /* Fetch historical data, each as one population */
@@ -451,7 +452,6 @@ public class PipelineMonitor {
             return d;
         }
     }
-
 
     /*
      *   Http handler to evaluate certain pipeline paths ended by one particular variable. It
@@ -683,7 +683,7 @@ public class PipelineMonitor {
                 }
                 else if (FOR_META.equals(command))
                 {
-                    handleMeta(t, in);
+                    handleMeta2(t, in);
                 }
                 else if (FOR_SEMANTICS.equals(command))
                 {
@@ -870,6 +870,148 @@ public class PipelineMonitor {
                 out.write(String.format("%s,\"%s\",\"%s\",\"%s\",\"%s\",\"%s\",%f,\"%s\",\"%s\"\n",
                         source.pid, source.srcvar, source.srcidx, source.operation, source.dstvar, source.dstidx,
                         source.score, source.start, source.finish).getBytes());
+            }
+            out.close();
+        }
+
+        //TODO: Integrate two more fields of log[TEST]
+        private void handleMeta2(HttpExchange t, BufferedReader in)
+                throws IOException, NoSuchFieldException, IllegalAccessException
+        {
+            /* Construct pipeline table title */
+            String pipeline_title = "";
+            Field[] fields = PipelineInfo.class.getFields();
+            boolean first = true;
+            for (int i = 0; i < fields.length; i++)
+            {
+                if (Modifier.isPublic(fields[i].getModifiers()))
+                {
+                    if (first)
+                    {
+                        first = false;
+                        pipeline_title += fields[i].getName();
+                    }
+                    else
+                    {
+                        pipeline_title += ',' + fields[i].getName();
+                    }
+                }
+            }
+
+            /* Construct log line table title */
+            String log_title = "";
+            fields = LogLine.class.getFields();
+            first = true;
+            for (int i = 0; i < fields.length; i++)
+            {
+                if (Modifier.isPublic(fields[i].getModifiers()))
+                {
+                    if (first)
+                    {
+                        first = false;
+                        log_title += fields[i].getName();
+                    }
+                    else
+                    {
+                        log_title += ',' + fields[i].getName();
+                    }
+                }
+            }
+
+            /* Integrate returned results */
+            ArrayList<ESResponse.Source> logs_meta = new ArrayList<ESResponse.Source>();
+            ArrayList<ESResponse.Source> pipelines_meta = new ArrayList<ESResponse.Source>();
+
+            String json = queryThroughSQLPlugin(in);
+            ESResponse es_response = gson.fromJson(json, ESResponse.class);
+            for (ESResponse.Hit hit : es_response.hits.hits)
+            {
+                if (!Config.ESS_INDEX.equals(hit._index))
+                {
+                    String msg = String.format("Invalid ES index: '%s'. Should be '%s' in current LogProv configuration."
+                            , hit._index, Config.ESS_INDEX);
+                    t.sendResponseHeaders(400, msg.getBytes().length);
+                    OutputStream out = t.getResponseBody();
+                    out.write(msg.getBytes());
+                    out.close();
+                    return;
+                }
+                if (Config.ESS_LOG_TYPE.equals(hit._type))
+                {
+                    logs_meta.add(hit._source);
+                }
+                else if (Config.ESS_PIPELINE_TYPE.equals(hit._type))
+                {
+                    pipelines_meta.add(hit._source);
+                }
+                else
+                {
+                    String msg = String.format("Invalid ES type: '%s'. Should be '%s' or '%s' in current LogProv configuration."
+                            , hit._type, Config.ESS_LOG_TYPE, Config.ESS_PIPELINE_TYPE);
+                    t.sendResponseHeaders(400, msg.getBytes().length);
+                    OutputStream out = t.getResponseBody();
+                    out.write(msg.getBytes());
+                    out.close();
+                    return;
+                }
+            }
+
+            t.sendResponseHeaders(200, 0);
+            OutputStream out = t.getResponseBody();
+            out.write(String.format("%s\n", pipeline_title).getBytes());
+            for (ESResponse.Source source : pipelines_meta)
+            {
+                String line = "";
+                fields = PipelineInfo.class.getFields();
+                first = true;
+                for (int i = 0; i < fields.length; i++)
+                {
+                    if (Modifier.isPublic(fields[i].getModifiers()))
+                    {
+                        if (first)
+                        {
+                            first = false;
+                            line += "\"" +
+                                    ESResponse.class.getDeclaredField(fields[i].getName()).get(source)
+                                    +"\"";
+                        }
+                        else
+                        {
+                            line += ',' + "\"" +
+                                    ESResponse.class.getDeclaredField(fields[i].getName()).get(source)
+                                    +"\"";
+                        }
+                    }
+                }
+                out.write(String.format("%s\n", line).getBytes());
+            }
+            out.write('\n');
+            out.write(String.format("%s\n", log_title).getBytes());
+            for (ESResponse.Source source: logs_meta)
+            {
+                String line = "";
+                fields = LogLine.class.getFields();
+                first = true;
+                for (int i = 0; i < fields.length; i++)
+                {
+                    if (Modifier.isPublic(fields[i].getModifiers()))
+                    {
+                        if (first)
+                        {
+                            first = false;
+                            line += "\"" +
+                                    ESResponse.class.getDeclaredField(fields[i].getName()).get(source)
+                                    +"\"";
+                        }
+                        else
+                        {
+                            line += ',' + "\"" +
+                                    ESResponse.class.getDeclaredField(fields[i].getName()).get(source)
+                                    +"\"";
+                        }
+                    }
+                }
+                out.write(String.format("%s\n", line).getBytes());
             }
             out.close();
         }

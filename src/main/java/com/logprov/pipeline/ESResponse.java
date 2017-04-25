@@ -16,13 +16,14 @@ public class ESResponse {
 
     /* TODO: Is there any way of multi-inheritance to write these code more gracefuly? */
     public class Source{
-
         public String pid;
         public String srcvar;
         public String srcidx;
         public String operation;
         public String dstvar;
         public String dstidx;
+        public String column_type;
+        public String inspected_columns;
         public double score;
         public String start;
         public String finish;

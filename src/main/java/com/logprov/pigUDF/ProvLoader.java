@@ -74,6 +74,7 @@ import org.apache.pig.parser.ParserException;
  * specification.
  *
  * TODO: Combine Load and Store into one class.
+ * TODO: Modify usage and comments for adding two new parameters[TEST]
  */
 public class ProvLoader extends LoadFunc {
 
@@ -131,15 +132,19 @@ public class ProvLoader extends LoadFunc {
     }
 
     /* Overloaded version */
-    public ProvLoader(String dstvar, String pm_location, String hdfspath, String info) throws IOException
+    public ProvLoader(String dstvar, String column_type, String inspected_columns,
+                      String pm_location, String hdfspath, String info) throws IOException
     {
-        this(dstvar, pm_location, hdfspath, info, ",", "");
+        this(dstvar, pm_location, column_type, inspected_columns, hdfspath, info, ",", "");
     }
 
     /* Initialize parameters for later use */
-    public ProvLoader(String dstvar, String pm_location, String hdfspath, String info,
-                      String delimiter, String options) throws IOException {
+    public ProvLoader(String dstvar, String column_type, String inspected_columns,
+                      String pm_location, String hdfspath, String info, String delimiter, String options)
+            throws IOException {
         this.log.dstvar = dstvar;
+        this.log.column_type = column_type;
+        this.log.inspected_columns = inspected_columns;
         this.pipeline_monitor_location = pm_location;
         this.hdfspath = hdfspath;
         this.info = info;
