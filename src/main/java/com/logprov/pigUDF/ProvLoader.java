@@ -74,7 +74,6 @@ import org.apache.pig.parser.ParserException;
  * specification.
  *
  * TODO: Combine Load and Store into one class.
- * TODO: Modify usage and comments for adding two new parameters[TEST]
  */
 public class ProvLoader extends LoadFunc {
 

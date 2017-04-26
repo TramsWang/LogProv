@@ -45,6 +45,12 @@ public class Config {
     public static final String ESS_LOG_MAPPING_FILE = "logs.json";
     public static final String ESS_PIPELINE_MAPPING_FILE = "pipelines.json";
 
+    /* Confidence Calculation Relevant */
+    public static final String CFD_BKT_DIR = "_CONFIDENCE_BUCKETS";
+    public static final String CFD_DIST_FILE_PREFIX = "DISTRIBUTION_COL_";
+    public static final String CFD_INDICATOR_FILE = "CORRUPTED";
+    public static final double CFD_THRESHOLD = 1e-5;
+
     //private HashMap<String, String> pool;
     //private String file_path = "./Config.conf";
 

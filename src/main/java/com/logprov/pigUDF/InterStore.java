@@ -19,8 +19,6 @@ import java.util.Date;
  * @version 3.0
  * Date: Apr. 05, 2017
  *
- * TODO: Modify usage and comments for two new parameters[TEST]
- *
  *   Provenance storing function for storing intermediate results. Syntax goes below:
  *
  *   REGISTER InterStore com.logprov.pigUDF.InterStore('Pipeline_Monitor_URL');

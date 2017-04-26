@@ -6,9 +6,10 @@ import com.sun.net.httpserver.HttpContext;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpHandler;
 import com.sun.net.httpserver.HttpServer;
+import org.apache.commons.math3.distribution.NormalDistribution;
+import org.apache.commons.math3.stat.descriptive.SummaryStatistics;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.*;
-import org.apache.http.HttpConnection;
 import org.apache.http.HttpHost;
 import org.apache.http.entity.ContentType;
 import org.apache.http.nio.entity.NStringEntity;
@@ -339,6 +340,7 @@ public class PipelineMonitor {
             }
         }
 
+        //TODO: Implement
         private void checkDivergence(String pid, String hdfs_path) throws Exception
         {
             /* Fetch log entries of all variables from ES */
@@ -348,107 +350,305 @@ public class PipelineMonitor {
                     .get();
             SearchHit hits[] = response.getHits().getHits();
 
-
-            /* Calculate distance on each variable */
+            /* Calculate confidence on each variable */
             for (SearchHit hit : hits)
             {
-                /* Fetch historical data, each as one population */
+                /* Fetch distribution meta info */
                 LogLine log = gson.fromJson(hit.getSourceAsString(), LogLine.class);
                 String dir_path = String.format("%s/*/*_%s", hdfs_path, log.dstvar);
-                System.out.println("DIVERGENCE:: " + log.dstvar);
+                String sample_path = String.format("%s/%s/%s_%s", hdfs_path, log.pid, log.dstidx, log.dstvar);
                 FileStatus[] dirs = hdfs.globStatus(new Path(dir_path));
-                BufferedReader[][] readers = new BufferedReader[dirs.length][];
-                for (int i = 0; i < dirs.length; i++)
+                String[] column_types = log.column_type.split(",");
+                String[] columns = log.inspected_columns.split(",");
+
+                HashMap<Integer, String> buckets = new HashMap<Integer, String>();
+                boolean bkt_changed = false;
+                Path bkt_file = new Path(String.format("%s/%s/%s.txt", hdfs_path, Config.CFD_BKT_DIR, log.dstvar));
+                if (hdfs.exists(bkt_file))
                 {
-                    FileStatus[] files = hdfs.listStatus(dirs[i].getPath());
-                    readers[i] = new BufferedReader[files.length];
-                    for (int j = 0; j < files.length; j++)
-                    {
-                        readers[i][j] = new BufferedReader(new InputStreamReader(hdfs.open(files[j].getPath())));
-                    }
-                }
-                log.distance = String.format("%.4f", JensenShannonDivergence(readers));
-                System.out.println("DISTANCE:: " + log.distance);
-                System.out.println();
-
-                /* Modify distance in ES */
-                UpdateRequest request = new UpdateRequest();
-                request.index(Config.ESS_INDEX).type(Config.ESS_LOG_TYPE).id(hit.getId())
-                        .doc("distance", log.distance);
-                System.out.println("TERMINATE: " + es_transport_client.update(request).get().toString());
-            }
-        }
-
-        private double JensenShannonDivergence(BufferedReader[][] populations) throws IOException
-        {
-            HashMap<Object, Double> M = new HashMap<Object, Double>();
-            HashMap<Object, Double>[] P = new HashMap[populations.length];
-            for (int i = 0; i < populations.length; i++)
-            {
-                P[i] = new HashMap<Object, Double>();
-            }
-
-            /* Calculate every distribution and the average one */
-            for (int i = 0; i < populations.length; i++)
-            {
-                HashMap<Object, Integer> tmp = new HashMap<Object, Integer>();
-
-                int population_cnt = 0;
-                for (BufferedReader reader : populations[i])
-                {
+                    BufferedReader reader = new BufferedReader(new InputStreamReader(hdfs.open(bkt_file)));
                     String line;
                     while (null != (line = reader.readLine()))
                     {
-                        population_cnt++;
-                        Integer cnt = tmp.get(line);
-                        if (null == cnt)
-                            tmp.put(line, 1);
-                        else
-                            tmp.put(line, cnt + 1);
+                        String[] tmp = line.split(":");
+                        buckets.put(Integer.valueOf(tmp[0]), tmp[1]);
                     }
+                    reader.close();
                 }
 
-                for (Map.Entry<Object, Integer> entry: tmp.entrySet())
+                /* Calculate confidence on each column */
+                log.confidence = "";
+                for (int i = 0; i < columns.length; i++)
                 {
-                    Double prob = (double)(entry.getValue()) / (double)population_cnt;
-                    Object o = entry.getKey();
-                    P[i].put(o, prob);
-                    Double total = M.get(o);
-                    if (null == total)
-                        M.put(o, prob);
+                    int col_idx = Integer.valueOf(columns[i]);
+                    String col_type = column_types[col_idx];
+                    ArrayList<HashMap<Integer, Double>> history = new ArrayList<HashMap<Integer, Double>>();
+                    HashMap<Integer, Double> sample = new HashMap<Integer, Double>();
+
+                    double start = 0, step = -1;
+                    if (buckets.containsKey(col_idx))
+                    {
+                        String[] paras = buckets.get(col_idx).split(",");
+                        start = Double.valueOf(paras[0]);
+                        step = Double.valueOf(paras[1]);
+                    }
                     else
-                        M.put(o, total + prob);
+                    {
+                        /* Measure bucket paras from history */
+                        double min = Double.MAX_VALUE;
+                        double max = Double.MIN_VALUE;
+                        for (int j = 0; j < dirs.length; j++)
+                        {
+                            if (!dirs[j].isDirectory()) continue;
+                            Path p = dirs[j].getPath();
+                            if (p.getName().contains(sample_path)) continue;
+
+                            FileStatus[] fragments = hdfs.globStatus(new Path(p.getName() + "/part-*"));
+                            for (FileStatus fs : fragments)
+                            {
+                                BufferedReader reader =
+                                        new BufferedReader(new InputStreamReader(hdfs.open(fs.getPath())));
+                                String line;
+                                while (null != (line = reader.readLine()))
+                                {
+                                    String tmp = line.split(",")[col_idx];
+                                    double val = ("s".equals(col_type))? tmp.hashCode(): Double.valueOf(tmp);
+                                    min = (val < min)? val : min;
+                                    max = (val > max)? val : max;
+                                }
+                                reader.close();
+                            }
+
+                            start = min;
+                            step = (max - min) / 1000;
+                            buckets.put(col_idx, String.format("%g,%g", start, step));
+                            bkt_changed = true;
+
+                            break;
+                        }
+                    }
+                    if (-1 == step)
+                        throw new IOException("CONFIDENCE:: Cannot read distribution histogram bucket values.");
+
+                    for (int j = 0; j < dirs.length; j++)
+                    {
+                        if (!dirs[j].isDirectory())
+                            continue;
+                        Path p = dirs[j].getPath();
+                        if (hdfs.exists(new Path(String.format("%s/%s", p.getName(), Config.CFD_INDICATOR_FILE))))
+                            continue;
+
+                        Path distribution_file_path =
+                                new Path(String.format("%s/%s%d", p.getName(), Config.CFD_DIST_FILE_PREFIX, col_idx));
+                        if (p.getName().contains(sample_path))
+                        {
+                            /* Calculate sample distribution */
+                            FileStatus[] fragments = hdfs.globStatus(new Path(p.getName() + "/part-*"));
+                            if ("s".equals(col_type))
+                                sample = calStringDistribution(fragments, col_idx, start, step);
+                            else
+                                sample = calNumberDistribution(fragments, col_idx, start, step);
+
+                            /* Write Down sample distribution */
+                            PrintWriter writer = new PrintWriter(hdfs.create(distribution_file_path));
+                            for (Map.Entry<Integer, Double> entry : sample.entrySet())
+                                writer.println(String.format("%d:%g", entry.getKey(), entry.getValue()));
+                            writer.close();
+                        }
+                        else
+                        {
+                            /* Get history distribution */
+                            if (hdfs.exists(distribution_file_path))
+                            {
+                                /* Read */
+                                HashMap<Integer, Double> dist = new HashMap<Integer, Double>();
+                                BufferedReader reader =
+                                        new BufferedReader(new InputStreamReader(hdfs.open(distribution_file_path)));
+                                String line;
+                                while (null != (line = reader.readLine()))
+                                {
+                                    String[] paras = line.split(":");
+                                    dist.put(Integer.valueOf(paras[0]), Double.valueOf(paras[1]));
+                                }
+                                reader.close();
+                                history.add(dist);
+                            }
+                            else
+                            {
+                                /* Calculate */
+                                FileStatus[] fragments = hdfs.globStatus(new Path(p.getName() + "/part-*"));
+                                if ("s".equals(col_type))
+                                    history.add(calStringDistribution(fragments, col_idx, start, step));
+                                else
+                                    history.add(calNumberDistribution(fragments, col_idx, start, step));
+
+                                /* Write Down */
+                                PrintWriter writer = new PrintWriter(hdfs.create(distribution_file_path));
+                                for (Map.Entry<Integer, Double> entry : sample.entrySet())
+                                    writer.println(String.format("%d:%g", entry.getKey(), entry.getValue()));
+                                writer.close();
+                            }
+                        }
+                    }
+
+                    /* Calculate confidence */
+                    HashMap<Integer, Double>[] populations = history.toArray(new HashMap[0]);
+                    log.confidence += String.format("%d:%g;", col_idx, confidence(populations, sample));
+                }
+
+                /* Modify log line in ESS */
+                UpdateRequest request = new UpdateRequest();
+                request.index(Config.ESS_INDEX).type(Config.ESS_LOG_TYPE).id(hit.getId())
+                        .doc("confidence", log.confidence);
+                System.out.println("TERMINATE: " + es_transport_client.update(request).get().toString());
+
+                /* Modify bucket file if applicable */
+                if (bkt_changed)
+                {
+                    PrintWriter writer = new PrintWriter(hdfs.create(bkt_file));
+                    for (Map.Entry<Integer, String> entry : buckets.entrySet())
+                        writer.println(String.format("%d:%s", entry.getKey(), entry.getValue()));
+                    writer.close();
                 }
             }
-            for (Map.Entry<Object, Double> entry : M.entrySet())
+        }
+
+        //TODO: [TEST]
+        private HashMap<Integer, Double> calNumberDistribution(FileStatus[] files, int colidx, double start, double step) throws IOException
+        {
+            HashMap<Integer, Integer> freq = new HashMap<Integer, Integer>();
+            int cnt = 0;
+            for (FileStatus fs : files)
+            {
+                BufferedReader reader = new BufferedReader(new InputStreamReader(hdfs.open(fs.getPath())));
+                String line;
+                while (null != (line = reader.readLine()))
+                {
+                    cnt++;
+                    double val = Double.valueOf(line.split(",")[colidx]);
+                    double diff = val - start;
+                    int bucket = (int)Math.floor(diff / step);
+                    Integer f = freq.get(bucket);
+                    if (null == f)
+                        freq.put(bucket, 1);
+                    else
+                        freq.put(bucket, f + 1);
+                }
+                reader.close();
+            }
+            HashMap<Integer, Double> distribution = new HashMap<Integer, Double>();
+            for (Map.Entry<Integer, Integer> entry : freq.entrySet())
+                distribution.put(entry.getKey(), (double)(entry.getValue()) / (double)cnt);
+            return distribution;
+        }
+
+        //TODO: [TEST]
+        private HashMap<Integer, Double> calStringDistribution(FileStatus[] files, int colidx, double start, double step) throws IOException
+        {
+            HashMap<Integer, Integer> freq = new HashMap<Integer, Integer>();
+            int cnt = 0;
+            for (FileStatus fs : files)
+            {
+                BufferedReader reader = new BufferedReader(new InputStreamReader(hdfs.open(fs.getPath())));
+                String line;
+                while (null != (line = reader.readLine()))
+                {
+                    cnt++;
+                    double val = line.split(",")[colidx].hashCode();
+                    double diff = val - start;
+                    int bucket = (int)Math.floor(diff / step);
+                    Integer f = freq.get(bucket);
+                    if (null == f)
+                        freq.put(bucket, 1);
+                    else
+                        freq.put(bucket, f + 1);
+                }
+                reader.close();
+            }
+            HashMap<Integer, Double> distribution = new HashMap<Integer, Double>();
+            for (Map.Entry<Integer, Integer> entry : freq.entrySet())
+                distribution.put(entry.getKey(), (double)(entry.getValue()) / (double)cnt);
+            return distribution;
+        }
+
+        private double confidence(HashMap<Integer, Double>[] populations, HashMap<Integer, Double> sample)
+        {
+            HashMap<Integer, Double> M = new HashMap<Integer, Double>();
+            HashMap<Integer, Double>[] P = populations;
+            HashMap<Integer, Double> S = sample;
+
+        /* Calculate distribution for population and sample */
+            for (int i = 0; i < populations.length; i++)
+            {
+                for (Map.Entry<Integer, Double> entry : P[i].entrySet())
+                {
+                    Double p = M.get(entry.getKey());
+                    if (null == p)
+                        M.put(entry.getKey(), entry.getValue());
+                    else
+                        M.put(entry.getKey(), p + entry.getValue());
+                }
+            }
+
+            for (Map.Entry<Integer, Double> entry : M.entrySet())
             {
                 entry.setValue(entry.getValue() / populations.length);
             }
 
-            /* Calculate divergence */
-            double d = 0;
+        /* Calculate distribution for JSDs of normal populations */
+            SummaryStatistics statistics = new SummaryStatistics();
             for (int i = 0; i < populations.length; i++)
-            {
-                for (Map.Entry<Object, Double> entry : P[i].entrySet())
-                {
-                    d += (double)entry.getValue() * Math.log(entry.getValue() / M.get(entry.getKey()));
-                }
-            }
-            d /= populations.length;
+                statistics.addValue(JSD(P[i], M));
+            NormalDistribution JSD_distribution = new NormalDistribution(statistics.getMean(),
+                    statistics.getStandardDeviation());
 
-            /* Test */
-            for (Map.Entry<Object, Double> entry : M.entrySet()) {
-                System.out.printf("<%s> %f\n", entry.getKey().toString(), entry.getValue());
-            }
-            System.out.println("--Single Array--");
-            for (int i = 0; i < populations.length; i++)
+        /* Calculate JSD for sample distribution and population distribution */
+        /*for (int i = 0; i < populations.length; i++)
+        {
+            System.out.printf("<JSD[%d]:>%g\n", i, JSD(P[i], M));
+        }
+        System.out.printf("<JSD[]:>%g\n", JSD(S, M));*/
+            return JSD_distribution.density(JSD(S, M));
+        }
+
+        private double JSD(HashMap<Integer, Double> P, HashMap<Integer, Double> Q)
+        {
+            HashMap<Integer, Double> M = new HashMap<Integer, Double>();
+            for (Map.Entry<Integer, Double> entry : P.entrySet())
             {
-                System.out.printf("\nArray: %d:\n", i);
-                for (Map.Entry<Object, Double> entry : P[i].entrySet())
-                {
-                    System.out.printf("<%s> %f\n", entry.getKey().toString(), entry.getValue());
-                }
+                Integer i = entry.getKey();
+                Double prob = M.get(i);
+                if (null == prob)
+                    M.put(i, entry.getValue());
+                else
+                    M.put(i, prob + entry.getValue());
             }
+
+            for (Map.Entry<Integer, Double> entry : Q.entrySet())
+            {
+                Integer i = entry.getKey();
+                Double prob = M.get(i);
+                if (null == prob)
+                    M.put(i, entry.getValue());
+                else
+                    M.put(i, prob + entry.getValue());
+            }
+
+            for (Map.Entry<Integer, Double> entry : M.entrySet())
+            {
+                entry.setValue(entry.getValue() / 2);
+            }
+
+            double d = 0;
+            for (Map.Entry<Integer, Double> entry : P.entrySet())
+            {
+                d += entry.getValue() * Math.log(entry.getValue() / M.get(entry.getKey()));
+            }
+            for (Map.Entry<Integer, Double> entry : Q.entrySet())
+            {
+                d += entry.getValue() * Math.log(entry.getValue() / M.get(entry.getKey()));
+            }
+            d /= 2;
             return d;
         }
     }
@@ -874,7 +1074,6 @@ public class PipelineMonitor {
             out.close();
         }
 
-        //TODO: Integrate two more fields of log[TEST]
         private void handleMeta2(HttpExchange t, BufferedReader in)
                 throws IOException, NoSuchFieldException, IllegalAccessException
         {
