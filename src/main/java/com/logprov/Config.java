@@ -47,8 +47,8 @@ public class Config {
 
     /* Confidence Calculation Relevant */
     public static final String CFD_BKT_DIR = "_CONFIDENCE_BUCKETS";
-    public static final String CFD_DIST_FILE_PREFIX = "DISTRIBUTION_COL_";
-    public static final String CFD_INDICATOR_FILE = "CORRUPTED";
+    public static final String CFD_DIST_FILE_PREFIX = "_DISTRIBUTION_COL_";
+    public static final String CFD_INDICATOR_FILE = "_CORRUPTED";
     public static final double CFD_THRESHOLD = 1e-5;
 
     //private HashMap<String, String> pool;
