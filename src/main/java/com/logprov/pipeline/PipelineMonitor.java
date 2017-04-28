@@ -274,8 +274,6 @@ public class PipelineMonitor {
      * Output(in lines):
      *   [Respond Code 200]
      *   None
-     *
-     * TODO: Implement Divergence[Test]
      */
     private class Terminate implements HttpHandler{
 
@@ -344,24 +342,6 @@ public class PipelineMonitor {
             }
         }
 
-        //TODO: [Remove]
-        public void test() throws IOException, InterruptedException, ExecutionException
-        {
-            String hdfs_path = "TestConfidenceInt";
-            LogLine log = new LogLine();
-            log.pid = "pid101";
-            log.dstvar = "var";
-            log.dstidx = "uid101";
-            log.column_type = "n,n";
-            log.inspected_columns = "1";
-
-            es_client.performRequest("POST", String.format("/%s/%s", Config.ESS_INDEX, Config.ESS_LOG_TYPE),
-                    Collections.<String, String>emptyMap(),
-                    new NStringEntity(gson.toJson(log), ContentType.APPLICATION_JSON));
-
-            checkConfidence(log.pid, hdfs_path);
-        }
-
         public void handle(HttpExchange t)
         {
             try
@@ -416,7 +396,6 @@ public class PipelineMonitor {
                 t.getResponseBody().close();
 
                 /* Perform divergence check */
-                //checkDivergence(pid, precord.hdfs_path);
                 checkConfidence(pid, precord.hdfs_path);
             }
             catch (Exception e)
@@ -440,6 +419,15 @@ public class PipelineMonitor {
             {
                 /* Fetch distribution meta info */
                 LogLine log = gson.fromJson(hit.getSourceAsString(), LogLine.class);
+
+                if ("".equals(log.inspected_columns))
+                {
+                    System.out.printf("CONFIDENCE:: No column need inspecting in variable '%s'\n", log.dstvar);
+                    continue;
+                }
+                String[] column_types = log.column_type.split(",");
+                String[] columns_idx_str = log.inspected_columns.split(",");
+
                 FileStatus[] history_dirs = getHistoryDirs(hdfs_path, log);
                 if (2 > history_dirs.length)  //not enough history
                 {
@@ -448,14 +436,6 @@ public class PipelineMonitor {
                     continue;
                 }
                 System.out.printf("CONFIDENCE::<%s> %d history data found.\n", log.dstvar, history_dirs.length);
-
-                String[] column_types = log.column_type.split(",");
-                String[] columns_idx_str = log.inspected_columns.split(",");
-                if (0 == columns_idx_str.length)
-                {
-                    System.out.printf("CONFIDENCE:: No column need inspecting in variable '%s'\n", log.dstvar);
-                    continue;
-                }
 
                 int[] column_idx = new int[columns_idx_str.length];
                 HashMap<Integer, ArrayList<DistributionCalculator>> column_history =
@@ -555,6 +535,7 @@ public class PipelineMonitor {
                             column_types[idx]));
                 }
                 FileStatus[] fragments = hdfs.globStatus(new Path(sample_path + "/part_*"));
+                System.out.printf("CONFIDENCE: %d parts found.\n", fragments.length);
                 for (FileStatus fs : fragments)
                 {
                     BufferedReader reader = new BufferedReader(new InputStreamReader(hdfs.open(fs.getPath())));
@@ -599,13 +580,12 @@ public class PipelineMonitor {
                 }
 
                 System.out.printf("CONFIDENCE::<%s> %s\n", log.dstvar, log.confidence);
-                if (null != log.confidence) return;
 
                 /* Modify log in ESS */
                 UpdateRequest request = new UpdateRequest();
                 request.index(Config.ESS_INDEX).type(Config.ESS_LOG_TYPE).id(hit.getId())
                         .doc("confidence", log.confidence);
-                System.out.println("TERMINATE: " + es_transport_client.update(request).get().toString());
+                System.out.println("CONFIDENCE: " + es_transport_client.update(request).get().toString());
             }
         }
 
@@ -1476,13 +1456,6 @@ public class PipelineMonitor {
                 Config.ESS_HOST, Config.ESS_PORT, Config.ESS_INDEX));
         System.out.printf("\tLogging In: '%s'\n", Config.PM_LOG_FILE);
 
-    }
-
-    public void test() throws Exception
-    {
-        Terminate t = new Terminate();
-        t.test();
-        System.exit(0);
     }
 
     @Override
