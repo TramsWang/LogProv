@@ -34,6 +34,7 @@ import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.URL;
 import java.util.*;
+import java.util.concurrent.ExecutionException;
 
 /**
  * @author  Ruoyu Wang
@@ -274,11 +275,10 @@ public class PipelineMonitor {
      *   [Respond Code 200]
      *   None
      *
-     * TODO: Implement Divergence
+     * TODO: Implement Divergence[Test]
      */
     private class Terminate implements HttpHandler{
 
-        //TODO: [Test]
         //TODO: Comments
         private class DistributionCalculator
         {
@@ -344,6 +344,24 @@ public class PipelineMonitor {
             }
         }
 
+        //TODO: [Remove]
+        public void test() throws IOException, InterruptedException, ExecutionException
+        {
+            String hdfs_path = "TestConfidenceInt";
+            LogLine log = new LogLine();
+            log.pid = "pid101";
+            log.dstvar = "var";
+            log.dstidx = "uid101";
+            log.column_type = "n,n";
+            log.inspected_columns = "1";
+
+            es_client.performRequest("POST", String.format("/%s/%s", Config.ESS_INDEX, Config.ESS_LOG_TYPE),
+                    Collections.<String, String>emptyMap(),
+                    new NStringEntity(gson.toJson(log), ContentType.APPLICATION_JSON));
+
+            checkConfidence(log.pid, hdfs_path);
+        }
+
         public void handle(HttpExchange t)
         {
             try
@@ -399,6 +417,7 @@ public class PipelineMonitor {
 
                 /* Perform divergence check */
                 //checkDivergence(pid, precord.hdfs_path);
+                checkConfidence(pid, precord.hdfs_path);
             }
             catch (Exception e)
             {
@@ -406,8 +425,8 @@ public class PipelineMonitor {
             }
         }
 
-        //TODO: Implement[Test]
-        private void checkConfidence(String pid, String hdfs_path) throws IOException
+        private void checkConfidence(String pid, String hdfs_path)
+                throws IOException, InterruptedException, ExecutionException
         {
             /* Fetch log entries of all variables from ES */
             SearchResponse response = es_transport_client.prepareSearch(Config.ESS_INDEX)
@@ -422,8 +441,22 @@ public class PipelineMonitor {
                 /* Fetch distribution meta info */
                 LogLine log = gson.fromJson(hit.getSourceAsString(), LogLine.class);
                 FileStatus[] history_dirs = getHistoryDirs(hdfs_path, log);
+                if (2 > history_dirs.length)  //not enough history
+                {
+                    System.err.printf("CONFIDENCE:: Not enough history records(%d history data found) for variable " +
+                            "'%s'\n", history_dirs.length, log.dstvar);
+                    continue;
+                }
+                System.out.printf("CONFIDENCE::<%s> %d history data found.\n", log.dstvar, history_dirs.length);
+
                 String[] column_types = log.column_type.split(",");
                 String[] columns_idx_str = log.inspected_columns.split(",");
+                if (0 == columns_idx_str.length)
+                {
+                    System.out.printf("CONFIDENCE:: No column need inspecting in variable '%s'\n", log.dstvar);
+                    continue;
+                }
+
                 int[] column_idx = new int[columns_idx_str.length];
                 HashMap<Integer, ArrayList<DistributionCalculator>> column_history =
                         new HashMap<Integer, ArrayList<DistributionCalculator>>();
@@ -441,7 +474,7 @@ public class PipelineMonitor {
                 {
                     if (!dir.isDirectory())
                         continue;
-                    if (hdfs.exists(new Path(String.format("%s/%s", dir.getPath().getName(),
+                    if (hdfs.exists(new Path(String.format("%s/%s", dir.getPath().toString(),
                             Config.CFD_INDICATOR_FILE))))
                         continue;
 
@@ -459,7 +492,7 @@ public class PipelineMonitor {
                     for (int i = 0; i < column_idx.length; i++)
                     {
                         int idx = column_idx[i];
-                        Path dist_file_path = new Path(String.format("%s/%s%d", dir.getPath().getName(),
+                        Path dist_file_path = new Path(String.format("%s/%s%d", dir.getPath().toString(),
                                 Config.CFD_DIST_FILE_PREFIX, idx));
                         if (hdfs.exists(dist_file_path))
                         {
@@ -477,7 +510,7 @@ public class PipelineMonitor {
                     if (0 < untracked_cols_list.size())
                     {
                         Integer[] untracked_cols = untracked_cols_list.toArray(new Integer[0]);
-                        FileStatus[] fragments = hdfs.globStatus(new Path(dir.getPath().getName() + "/part_*"));
+                        FileStatus[] fragments = hdfs.globStatus(new Path(dir.getPath().toString() + "/part_*"));
                         for (FileStatus fs : fragments)
                         {
                             BufferedReader reader = new BufferedReader(new InputStreamReader(hdfs.open(fs.getPath())));
@@ -499,7 +532,7 @@ public class PipelineMonitor {
                             int idx_idx = untracked_cols[i];
                             HashMap<Integer, Double> dist = calculators[idx_idx].calculate();
 
-                            Path dist_file_path = new Path(String.format("%s/%s%d", dir.getPath().getName(),
+                            Path dist_file_path = new Path(String.format("%s/%s%d", dir.getPath().toString(),
                                     Config.CFD_DIST_FILE_PREFIX, column_idx[idx_idx]));
                             PrintWriter writer = new PrintWriter(hdfs.create(dist_file_path));
                             for (Map.Entry<Integer, Double> entry : dist.entrySet())
@@ -565,11 +598,17 @@ public class PipelineMonitor {
                         hdfs.create(new Path(String.format("%s/%s", sample_path, Config.CFD_INDICATOR_FILE)));
                 }
 
+                System.out.printf("CONFIDENCE::<%s> %s\n", log.dstvar, log.confidence);
+                if (null != log.confidence) return;
+
                 /* Modify log in ESS */
+                UpdateRequest request = new UpdateRequest();
+                request.index(Config.ESS_INDEX).type(Config.ESS_LOG_TYPE).id(hit.getId())
+                        .doc("confidence", log.confidence);
+                System.out.println("TERMINATE: " + es_transport_client.update(request).get().toString());
             }
         }
 
-        //TODO: Implement[Test]
         private FileStatus[] getHistoryDirs(String hdfs_path, LogLine log) throws IOException
         {
             String dir_path = String.format("%s/*/*_%s", hdfs_path, log.dstvar);
@@ -577,12 +616,13 @@ public class PipelineMonitor {
             FileStatus[] dirs = hdfs.globStatus(new Path(dir_path));
             ArrayList<FileStatus> list = new ArrayList<FileStatus>();
             for (FileStatus fs : dirs)
-                if (!fs.getPath().getName().contains(sample_path))
+            {
+                if (!fs.getPath().toString().contains(sample_path))
                     list.add(fs);
+            }
             return list.toArray(new FileStatus[0]);
         }
 
-        //TODO: Implement[Test]
         private HashMap<Integer, String> getColumnBuckets(String hdfs_path, LogLine log, int[] col_idx,
                                                           String[] col_type, FileStatus dir)
                 throws IOException
@@ -615,7 +655,13 @@ public class PipelineMonitor {
                 Integer[] unrecorded_idx = tmp_list.toArray(new Integer[0]);
                 double[] max = new double[unrecorded_idx.length];
                 double[] min = new double[unrecorded_idx.length];
-                FileStatus[] fragments = hdfs.globStatus(new Path(dir.getPath().getName() + "/part_*"));
+                for (int i = 0; i < unrecorded_idx.length; i++)
+                {
+                    max[i] = Double.MIN_VALUE;
+                    min[i] = Double.MAX_VALUE;
+                }
+
+                FileStatus[] fragments = hdfs.globStatus(new Path(dir.getPath().toString() + "/part_*"));
                 for (FileStatus fs : fragments)
                 {
                     BufferedReader reader = new BufferedReader(new InputStreamReader(hdfs.open(fs.getPath())));
@@ -655,242 +701,13 @@ public class PipelineMonitor {
             return (max - min) / 1000;
         }
 
-        //TODO: Implement[TEST][Deprecated]
-        private void checkDivergence(String pid, String hdfs_path) throws Exception
-        {
-            /* Fetch log entries of all variables from ES */
-            SearchResponse response = es_transport_client.prepareSearch(Config.ESS_INDEX)
-                    .setTypes(Config.ESS_LOG_TYPE).setSearchType(SearchType.DFS_QUERY_THEN_FETCH)
-                    .setQuery(QueryBuilders.termQuery("pid", pid))
-                    .get();
-            SearchHit hits[] = response.getHits().getHits();
-
-            /* Calculate confidence on each variable */
-            for (SearchHit hit : hits)
-            {
-                /* Fetch distribution meta info */
-                LogLine log = gson.fromJson(hit.getSourceAsString(), LogLine.class);
-                String dir_path = String.format("%s/*/*_%s", hdfs_path, log.dstvar);
-                String sample_path = String.format("%s/%s/%s_%s", hdfs_path, log.pid, log.dstidx, log.dstvar);
-                FileStatus[] dirs = hdfs.globStatus(new Path(dir_path));
-                String[] column_types = log.column_type.split(",");
-                String[] columns = log.inspected_columns.split(",");
-
-                HashMap<Integer, String> buckets = new HashMap<Integer, String>();
-                boolean bkt_changed = false;
-                Path bkt_file = new Path(String.format("%s/%s/%s.txt", hdfs_path, Config.CFD_BKT_DIR, log.dstvar));
-                if (hdfs.exists(bkt_file))
-                {
-                    BufferedReader reader = new BufferedReader(new InputStreamReader(hdfs.open(bkt_file)));
-                    String line;
-                    while (null != (line = reader.readLine()))
-                    {
-                        String[] tmp = line.split(":");
-                        buckets.put(Integer.valueOf(tmp[0]), tmp[1]);
-                    }
-                    reader.close();
-                }
-
-                /* Calculate confidence on each column */
-                log.confidence = "";
-                for (int i = 0; i < columns.length; i++)
-                {
-                    int col_idx = Integer.valueOf(columns[i]);
-                    String col_type = column_types[col_idx];
-                    ArrayList<HashMap<Integer, Double>> history = new ArrayList<HashMap<Integer, Double>>();
-                    HashMap<Integer, Double> sample = new HashMap<Integer, Double>();
-
-                    double start = 0, step = -1;
-                    if (buckets.containsKey(col_idx))
-                    {
-                        String[] paras = buckets.get(col_idx).split(",");
-                        start = Double.valueOf(paras[0]);
-                        step = Double.valueOf(paras[1]);
-                    }
-                    else
-                    {
-                        /* Measure bucket paras from history */
-                        double min = Double.MAX_VALUE;
-                        double max = Double.MIN_VALUE;
-                        for (int j = 0; j < dirs.length; j++)
-                        {
-                            if (!dirs[j].isDirectory()) continue;
-                            Path p = dirs[j].getPath();
-                            if (p.getName().contains(sample_path)) continue;
-
-                            FileStatus[] fragments = hdfs.globStatus(new Path(p.getName() + "/part-*"));
-                            for (FileStatus fs : fragments)
-                            {
-                                BufferedReader reader =
-                                        new BufferedReader(new InputStreamReader(hdfs.open(fs.getPath())));
-                                String line;
-                                while (null != (line = reader.readLine()))
-                                {
-                                    String tmp = line.split(",")[col_idx];
-                                    double val = ("s".equals(col_type))? tmp.hashCode(): Double.valueOf(tmp);
-                                    min = (val < min)? val : min;
-                                    max = (val > max)? val : max;
-                                }
-                                reader.close();
-                            }
-
-                            start = min;
-                            step = (max - min) / 1000;
-                            buckets.put(col_idx, String.format("%g,%g", start, step));
-                            bkt_changed = true;
-
-                            break;
-                        }
-                    }
-                    if (-1 == step)
-                        throw new IOException("CONFIDENCE:: Cannot read distribution histogram bucket values.");
-
-                    for (int j = 0; j < dirs.length; j++)
-                    {
-                        if (!dirs[j].isDirectory())
-                            continue;
-                        Path p = dirs[j].getPath();
-                        if (hdfs.exists(new Path(String.format("%s/%s", p.getName(), Config.CFD_INDICATOR_FILE))))
-                            continue;
-
-                        Path distribution_file_path =
-                                new Path(String.format("%s/%s%d", p.getName(), Config.CFD_DIST_FILE_PREFIX, col_idx));
-                        if (p.getName().contains(sample_path))
-                        {
-                            /* Calculate sample distribution */
-                            FileStatus[] fragments = hdfs.globStatus(new Path(p.getName() + "/part_*"));
-                            if ("s".equals(col_type))
-                                sample = calStringDistribution(fragments, col_idx, start, step);
-                            else
-                                sample = calNumberDistribution(fragments, col_idx, start, step);
-
-                            /* Write Down sample distribution */
-                            PrintWriter writer = new PrintWriter(hdfs.create(distribution_file_path));
-                            for (Map.Entry<Integer, Double> entry : sample.entrySet())
-                                writer.println(String.format("%d:%g", entry.getKey(), entry.getValue()));
-                            writer.close();
-                        }
-                        else
-                        {
-                            /* Get history distribution */
-                            if (hdfs.exists(distribution_file_path))
-                            {
-                                /* Read */
-                                HashMap<Integer, Double> dist = new HashMap<Integer, Double>();
-                                BufferedReader reader =
-                                        new BufferedReader(new InputStreamReader(hdfs.open(distribution_file_path)));
-                                String line;
-                                while (null != (line = reader.readLine()))
-                                {
-                                    String[] paras = line.split(":");
-                                    dist.put(Integer.valueOf(paras[0]), Double.valueOf(paras[1]));
-                                }
-                                reader.close();
-                                history.add(dist);
-                            }
-                            else
-                            {
-                                /* Calculate */
-                                FileStatus[] fragments = hdfs.globStatus(new Path(p.getName() + "/part-*"));
-                                if ("s".equals(col_type))
-                                    history.add(calStringDistribution(fragments, col_idx, start, step));
-                                else
-                                    history.add(calNumberDistribution(fragments, col_idx, start, step));
-
-                                /* Write Down */
-                                PrintWriter writer = new PrintWriter(hdfs.create(distribution_file_path));
-                                for (Map.Entry<Integer, Double> entry : sample.entrySet())
-                                    writer.println(String.format("%d:%g", entry.getKey(), entry.getValue()));
-                                writer.close();
-                            }
-                        }
-                    }
-
-                    /* Calculate confidence */
-                    HashMap<Integer, Double>[] populations = history.toArray(new HashMap[0]);
-                    log.confidence += String.format("%d:%g;", col_idx, confidence(populations, sample));
-                }
-
-                /* Modify log line in ESS */
-                UpdateRequest request = new UpdateRequest();
-                request.index(Config.ESS_INDEX).type(Config.ESS_LOG_TYPE).id(hit.getId())
-                        .doc("confidence", log.confidence);
-                System.out.println("TERMINATE: " + es_transport_client.update(request).get().toString());
-
-                /* Modify bucket file if applicable */
-                if (bkt_changed)
-                {
-                    PrintWriter writer = new PrintWriter(hdfs.create(bkt_file));
-                    for (Map.Entry<Integer, String> entry : buckets.entrySet())
-                        writer.println(String.format("%d:%s", entry.getKey(), entry.getValue()));
-                    writer.close();
-                }
-            }
-        }
-
-        private HashMap<Integer, Double> calNumberDistribution(FileStatus[] files, int colidx, double start, double step) throws IOException
-        {
-            HashMap<Integer, Integer> freq = new HashMap<Integer, Integer>();
-            int cnt = 0;
-            for (FileStatus fs : files)
-            {
-                BufferedReader reader = new BufferedReader(new InputStreamReader(hdfs.open(fs.getPath())));
-                String line;
-                while (null != (line = reader.readLine()))
-                {
-                    cnt++;
-                    double val = Double.valueOf(line.split(",")[colidx]);
-                    double diff = val - start;
-                    int bucket = (int)Math.floor(diff / step);
-                    Integer f = freq.get(bucket);
-                    if (null == f)
-                        freq.put(bucket, 1);
-                    else
-                        freq.put(bucket, f + 1);
-                }
-                reader.close();
-            }
-            HashMap<Integer, Double> distribution = new HashMap<Integer, Double>();
-            for (Map.Entry<Integer, Integer> entry : freq.entrySet())
-                distribution.put(entry.getKey(), (double)(entry.getValue()) / (double)cnt);
-            return distribution;
-        }
-
-        private HashMap<Integer, Double> calStringDistribution(FileStatus[] files, int colidx, double start, double step) throws IOException
-        {
-            HashMap<Integer, Integer> freq = new HashMap<Integer, Integer>();
-            int cnt = 0;
-            for (FileStatus fs : files)
-            {
-                BufferedReader reader = new BufferedReader(new InputStreamReader(hdfs.open(fs.getPath())));
-                String line;
-                while (null != (line = reader.readLine()))
-                {
-                    cnt++;
-                    double val = line.split(",")[colidx].hashCode();
-                    double diff = val - start;
-                    int bucket = (int)Math.floor(diff / step);
-                    Integer f = freq.get(bucket);
-                    if (null == f)
-                        freq.put(bucket, 1);
-                    else
-                        freq.put(bucket, f + 1);
-                }
-                reader.close();
-            }
-            HashMap<Integer, Double> distribution = new HashMap<Integer, Double>();
-            for (Map.Entry<Integer, Integer> entry : freq.entrySet())
-                distribution.put(entry.getKey(), (double)(entry.getValue()) / (double)cnt);
-            return distribution;
-        }
-
         private double confidence(HashMap<Integer, Double>[] populations, HashMap<Integer, Double> sample)
         {
             HashMap<Integer, Double> M = new HashMap<Integer, Double>();
             HashMap<Integer, Double>[] P = populations;
             HashMap<Integer, Double> S = sample;
 
-        /* Calculate distribution for population and sample */
+            /* Calculate distribution for population and sample */
             for (int i = 0; i < populations.length; i++)
             {
                 for (Map.Entry<Integer, Double> entry : P[i].entrySet())
@@ -908,19 +725,19 @@ public class PipelineMonitor {
                 entry.setValue(entry.getValue() / populations.length);
             }
 
-        /* Calculate distribution for JSDs of normal populations */
+            /* Calculate distribution for JSDs of normal populations */
             SummaryStatistics statistics = new SummaryStatistics();
             for (int i = 0; i < populations.length; i++)
                 statistics.addValue(JSD(P[i], M));
             NormalDistribution JSD_distribution = new NormalDistribution(statistics.getMean(),
                     statistics.getStandardDeviation());
 
-        /* Calculate JSD for sample distribution and population distribution */
-        /*for (int i = 0; i < populations.length; i++)
-        {
-            System.out.printf("<JSD[%d]:>%g\n", i, JSD(P[i], M));
-        }
-        System.out.printf("<JSD[]:>%g\n", JSD(S, M));*/
+            /* Calculate JSD for sample distribution and population distribution */
+            /*for (int i = 0; i < populations.length; i++)
+            {
+                System.out.printf("<JSD[%d]:>%g\n", i, JSD(P[i], M));
+            }
+            System.out.printf("<JSD[]:>%g\n", JSD(S, M));*/
             return JSD_distribution.density(JSD(S, M));
         }
 
@@ -1196,7 +1013,7 @@ public class PipelineMonitor {
                 }
                 else if (FOR_META.equals(command))
                 {
-                    handleMeta2(t, in);
+                    handleMeta(t, in);
                 }
                 else if (FOR_SEMANTICS.equals(command))
                 {
@@ -1325,69 +1142,7 @@ public class PipelineMonitor {
             out.close();
         }
 
-        private void handleMeta(HttpExchange t, BufferedReader in) throws IOException
-        {
-            String log_title = "PID,Srcvar,Srcidx,Operation,Dstvar,Dstidx,Score,Start,Finish\n";
-            String pipeline_title = "PID,HDFS-Path,Info,Start,Finish\n";
-            ArrayList<ESResponse.Source> logs_meta = new ArrayList<ESResponse.Source>();
-            ArrayList<ESResponse.Source> pipelines_meta = new ArrayList<ESResponse.Source>();
-
-            String json = queryThroughSQLPlugin(in);
-
-            /* Integrate returned results */
-            ESResponse es_response = gson.fromJson(json, ESResponse.class);
-            for (ESResponse.Hit hit : es_response.hits.hits)
-            {
-                if (!Config.ESS_INDEX.equals(hit._index))
-                {
-                    String msg = String.format("Invalid ES index: '%s'. Should be '%s' in current LogProv configuration."
-                            , hit._index, Config.ESS_INDEX);
-                    t.sendResponseHeaders(400, msg.getBytes().length);
-                    OutputStream out = t.getResponseBody();
-                    out.write(msg.getBytes());
-                    out.close();
-                    return;
-                }
-                if (Config.ESS_LOG_TYPE.equals(hit._type))
-                {
-                    logs_meta.add(hit._source);
-                }
-                else if (Config.ESS_PIPELINE_TYPE.equals(hit._type))
-                {
-                    pipelines_meta.add(hit._source);
-                }
-                else
-                {
-                    String msg = String.format("Invalid ES type: '%s'. Should be '%s' or '%s' in current LogProv configuration."
-                            , hit._type, Config.ESS_LOG_TYPE, Config.ESS_PIPELINE_TYPE);
-                    t.sendResponseHeaders(400, msg.getBytes().length);
-                    OutputStream out = t.getResponseBody();
-                    out.write(msg.getBytes());
-                    out.close();
-                    return;
-                }
-            }
-
-            t.sendResponseHeaders(200, 0);
-            OutputStream out = t.getResponseBody();
-            out.write(pipeline_title.getBytes());
-            for (ESResponse.Source source : pipelines_meta)
-            {
-                out.write(String.format("%s,%s,\"%s\",\"%s\",\"%s\"\n",
-                        source.pid,source.hdfs_path,source.info,source.start,source.finish).getBytes());
-            }
-            out.write('\n');
-            out.write(log_title.getBytes());
-            for (ESResponse.Source source: logs_meta)
-            {
-                out.write(String.format("%s,\"%s\",\"%s\",\"%s\",\"%s\",\"%s\",%f,\"%s\",\"%s\"\n",
-                        source.pid, source.srcvar, source.srcidx, source.operation, source.dstvar, source.dstidx,
-                        source.score, source.start, source.finish).getBytes());
-            }
-            out.close();
-        }
-
-        private void handleMeta2(HttpExchange t, BufferedReader in)
+        private void handleMeta(HttpExchange t, BufferedReader in)
                 throws IOException, NoSuchFieldException, IllegalAccessException
         {
             /* Construct pipeline table title */
@@ -1721,6 +1476,13 @@ public class PipelineMonitor {
                 Config.ESS_HOST, Config.ESS_PORT, Config.ESS_INDEX));
         System.out.printf("\tLogging In: '%s'\n", Config.PM_LOG_FILE);
 
+    }
+
+    public void test() throws Exception
+    {
+        Terminate t = new Terminate();
+        t.test();
+        System.exit(0);
     }
 
     @Override

@@ -20,6 +20,7 @@ public class LogProv {
     public static void main(String args[]) throws Exception
     {
         PipelineMonitor pm = new PipelineMonitor();
-        pm.initiate();
+        pm.test();
+        //pm.initiate();
     }
 }
