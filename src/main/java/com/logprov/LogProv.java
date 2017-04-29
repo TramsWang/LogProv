@@ -12,7 +12,6 @@ import java.io.IOException;
  *   Main function of LogProv system.
  *
  * TODO: Write new usage example
- * TODO: Modify comments of every class
  */
 public class LogProv {
 

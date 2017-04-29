@@ -8,8 +8,8 @@ import java.util.Map;
 
 /**
  * @author  Ruoyu Wang
- * @version 1.1
- * Date:    2017.04.10
+ * @version 1.2
+ * Date:    2017.04.29
  *
  *   System config parameters.
  */

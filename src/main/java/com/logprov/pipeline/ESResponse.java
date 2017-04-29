@@ -1,10 +1,16 @@
 package com.logprov.pipeline;
 
 /**
- * Created by:  Ruoyu Wang
- * Date:        2017.04.05
+ * @author  Ruoyu Wang
+ * @version 1.2
+ * Date:    2017.04.29
  *
- *   Elasticsearch response structure. Used for reverse from JSON string via Gson.
+ *   Elasticsearch response structure. Used for reversing ESS response from JSON string via Gson. It contains every
+ * needed component to convert an ESS response string, in which the 'source' object contains all components in both
+ * class 'LogLine' and 'PipelineInfo'(without duplication).
+ *
+ * @see com.logprov.pipeline.LogLine
+ * @see com.logprov.pipeline.PipelineInfo
  */
 public class ESResponse {
 

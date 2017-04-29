@@ -38,17 +38,40 @@ import java.util.concurrent.ExecutionException;
 
 /**
  * @author  Ruoyu Wang
- * @version 3.4
- * Date:    2017.04.12
+ * @version 3.5
+ * Date:    2017.04.29
  *
- *   Main server of LogProv system. It stores and monitors executions of all pig pipelines,
- * responding requests lodged from users to query for pipeline parameters.
+ *   Main server of LogProv system. It monitors executions of all pig pipelines, storing intermediate data and
+ * performing operation level well-functioning confidence check. It responds requests lodged from users to query for
+ * pipeline parameters.
+ *
+ * File Hierarchy & Format:
+ *   [HDFS path]
+ *     ┣━[PID[1]]
+ *     ┃  ┣━[idx[1]_var[1]]
+ *     ┃  ┃  ┣━part_0      => part 0 of intermediate data, 'csv' format
+ *     ┃  ┃  ┣━...                                                       ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+ *     ┃  ┃  ┣━part_[n]    => part n of intermediate data, 'csv' format  ┃[bucket#[1]:[probability[1]]┃
+ *     ┃  ┃  ┣━_DISTRIBUTION_COL_0      => distribution of column 0      ┃...                         ┃
+ *     ┃  ┃  ┣━...                                                    => ┃[bucket#[b]:[probability[b]]┃
+ *     ┃  ┃  ┣━_DISTRIBUTION_COL_[k]    => distribution of column k      ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
+ *     ┃  ┃  ┗━(*)_CORRUPTED            => empty indicator file, exists only when confidence is lower than
+ *     ┃  ┣━...                            threshold
+ *     ┃  ┗━[idx[v]_var[v]]
+ *     ┃     ┗━...
+ *     ┣━...
+ *     ┣━[PID[p]]
+ *     ┃  ┗━..                                                      ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+ *     ┗━_CONFIDENCE_BUCKETS                                        ┃[column index[0]]:[base[0]],[setp[0]]┃
+ *        ┣━[var[1]]    => var[1] distribution histogram setting    ┃...                                  ┃
+ *        ┣━...                                                  => ┃[column index[i]]:[base[i]],[step[i]]┃
+ *        ┗━[var[v]]    => var[v] distribution histogram setting    ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
  */
 public class PipelineMonitor {
 
     /*
-     *   Auxiliary structure used for recording allocation information of pipeline intermediate
-     * data generated from Pig Latin variables.
+     *   Auxiliary structure used for recording allocation information of pipeline intermediate data generated from Pig
+     * Latin variables.
      */
     private class VarAllocInfo{
         public String index;    // Variable index
@@ -65,8 +88,8 @@ public class PipelineMonitor {
     }
 
     /*
-     *   Auxiliary structure used for recording pipeline execution information, including pipeline
-     * storage path, variables.
+     *   Auxiliary structure used for recording pipeline execution information, including pipeline storage path,
+     * variables.
      */
     private class PipelineRecord{
         String hdfs_path;                   // HDFS path to directories and files recording
@@ -82,16 +105,9 @@ public class PipelineMonitor {
         }
     }
 
-    /* TODO: Comments here(or put it back to 'Search') */
-    private class LogInfo{
-        String eid = null;
-        LogLine log = null;
-    }
-
     /*
-     *   Http handler for requests to start a new pipeline execution. It records pipeline execution
-     * details in memory for later requests, assign an unique ID for this pipeline and return this
-     * PID to user.
+     *   Http handler for requests to start a new pipeline execution. It records pipeline execution details in memory
+     * for later requests, assign an unique ID for this pipeline and return this PID to user.
      *
      * Context URL:
      *   See "com.logprov.Config.CONT_START_PIPELINE"
@@ -146,17 +162,16 @@ public class PipelineMonitor {
     }
 
     /*
-     *   Http handler for requests to allocate a new HDFS path correspond to certain variable to
-     * write down intermediate data generated during pipeline execution. It looks up for variable
-     * allocation information in certain pipeline execution, assign a new path and return it to
-     * user.
+     *   Http handler for requests to allocate a new HDFS path correspond to certain variable to write down intermediate
+     * data generated during pipeline execution. It looks up for variable allocation information in certain pipeline
+     * execution, assign a new path and return it to user.
      *
      * Context URL:
      *   See "com.logprov.Config.CONT_REQUIRE_DATA_STORAGE"
      *
      * Input(in lines):
-     *   1. LogLine JSON string('pid', 'srcvar', 'operation', 'dstvar' and 'start' should already be assigned; so should
-     * 'srcidx' and 'dstidx' if this is from a loader.)
+     *   1. LogLine JSON string('pid', 'srcvar', 'operation', 'dstvar', 'start', 'column_type' and 'inspect_columns'
+     * should already be assigned; so should 'srcidx' and 'dstidx' if this is from a loader.)
      *
      * Output(in liens):
      *   [Respond Code 200]
@@ -262,8 +277,9 @@ public class PipelineMonitor {
     }
 
     /*
-     *   Http handler to terminate a pipeline execution after a pipeline finishes. It modifies
-     * pipeline information in Elasticsearch and remove execution record from memory.
+     *   Http handler to terminate a pipeline execution after a pipeline finishes. It modifies pipeline information in
+     * Elasticsearch and remove execution record from memory. At the end, it performs operation level confidence check
+     * on every operation to make sure that every operation is well-functioning.
      *
      * Context URL:
      *   See "com.logprov.Config.CONT_TERMINATE_PIPELINE"
@@ -277,7 +293,9 @@ public class PipelineMonitor {
      */
     private class Terminate implements HttpHandler{
 
-        //TODO: Comments
+        /*
+         *   This class is used to accumulate elements and calculate their distribution
+         */
         private class DistributionCalculator
         {
             private double start;
@@ -764,9 +782,9 @@ public class PipelineMonitor {
     }
 
     /*
-     *   Http handler to evaluate certain pipeline paths ended by one particular variable. It
-     * looks up the paths from ES and memory, then sends HDFS file path to the oracle and get
-     * an result score, then add the score to all involved components.
+     *   Http handler to evaluate certain pipeline paths ended by one particular variable. It looks up the paths from
+     * ES and memory, then sends HDFS file path to the oracle and get an result score, then add the score to all
+     * involved components.
      *
      * Context URL:
      *   See "com.logprov.Config.CONT_EVALUATION"
@@ -781,6 +799,11 @@ public class PipelineMonitor {
      *   1. Acknowledge Message String
      */
     private class Evaluate implements HttpHandler {
+
+        private class LogInfo{
+            String eid = null;
+            LogLine log = null;
+        }
 
         public void handle(HttpExchange t)
         {
@@ -960,8 +983,7 @@ public class PipelineMonitor {
     }
 
     /*
-     *   Http handler to answer search request. It searches from ES and integrate the results and
-     * send back to user.
+     *   Http handler to answer search request. It searches from ES and integrate the results and send back to user.
      *
      * Context URL:
      *   See "com.logprov.Config.CONT_SEARCH"

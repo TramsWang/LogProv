@@ -15,28 +15,38 @@ import java.net.URL;
 import java.util.Date;
 
 /**
- * @author Ruoyu Wang
- * @version 3.0
- * Date: Apr. 05, 2017
+ * @author  Ruoyu Wang
+ * @version 2.1
+ * Date:    2017.04.29
  *
- *   Provenance storing function for storing intermediate results. Syntax goes below:
+ *   LogProv storing function for storing intermediate results.
  *
- *   REGISTER InterStore com.logprov.pigUDF.InterStore('Pipeline_Monitor_URL');
- *   dstvar = FOREACH dstvar GENERATE FLATTEN(InterStore('srcvar', 'processor', 'dstvar', *));
+ * Syntax:
+ *   DEFINE InterStore com.logprov.pigUDF.InterStore('[pipeline monitor URL]');
+ *   [dstvar] = FOREACH [dstvar] GENERATE FLATTEN(InterStore('[srcvar]', '[operation]', '[dstvar]', '[column type]',
+ * '[inspected columns]', *));
  *
- *   Where, you should always initialize this function via Pig Latin macro definition, providing it with proper address
- * information about pipeline monitor. 'dstvar' is the relation that's going to be stored, we suggest using same relation name when applying this
- * operation for the sake of performance and correctness; 'srcvar' is a string denotes the source variable, if there's
- * more than one, all source variable names are separated by ','; 'processor' stands for the user specified name for
- * this procedure; 'dstvar' is the name of the variable user would like to store data from; last asterisk is compulsory
- * for it means the entire data content.
+ *   [dstvar] is the name for output variable who receives data from loader; [srcvar] is the name for input variable;
+ * [operation] is the name of this step of operation; [column type] is a string indicating the type of each column in
+ * data, where 'n' and 's' stands for numerical and textual data respectively, separated by ',' if many; [inspected
+ * columns] is a string indicating the indices of columns used as evidences to discover operation malfunction, ','
+ * separated if many.
+ *   This function should always be initialized via Pig Latin macro definition, provided with proper URL of pipeline
+ * monitor server. Moreover, this function shall always be used inside a FLATTEN operator since it returns each record
+ * wrapped as a Pig tuple.
  *
- *   This function shall always be used inside a FLATTEN operator, as shown in the example below:
- *   E.g.
- *   REGISTER InterStore com.logprov.pigUDF.InterStore('http://localhost:8888');
+ * Example 1:
+ *   DEFINE InterStore com.logprov.pigUDF.InterStore('http://localhost:58888');
  *   ...
  *   dstvar = JOIN srcvar1 BY $0, srcvar2 BY $0;
  *   dstvar = FOREACH dstvar GENERATE FLATTEN(InterStore('srcvar1,srcvar2', 'Example', 'dstvar', *));
+ *   ...
+ *
+ * Example 2:
+ *   DEFINE InterStore com.logprov.pigUDF.InterStore('http://localhost:58888');
+ *   ...
+ *   dstvar = FOREACH (JOIN srcvar1 BY $0, srcvar2 BY $0) GENERATE FLATTEN(InterStore('srcvar1,srcvar2', 'Example',
+ * 'dstvar', *));
  *   ...
  */
 public class InterStore extends EvalFunc<Tuple>{
