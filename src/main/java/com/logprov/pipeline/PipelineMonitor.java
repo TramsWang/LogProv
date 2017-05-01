@@ -47,25 +47,25 @@ import java.util.concurrent.ExecutionException;
  *
  * File Hierarchy & Format:
  *   [HDFS path]
- *     ┣━[PID[1]]
- *     ┃  ┣━[idx[1]_var[1]]
- *     ┃  ┃  ┣━part_0      => part 0 of intermediate data, 'csv' format
- *     ┃  ┃  ┣━...                                                       ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
- *     ┃  ┃  ┣━part_[n]    => part n of intermediate data, 'csv' format  ┃[bucket#[1]:[probability[1]]┃
- *     ┃  ┃  ┣━_DISTRIBUTION_COL_0      => distribution of column 0      ┃...                         ┃
- *     ┃  ┃  ┣━...                                                    => ┃[bucket#[b]:[probability[b]]┃
- *     ┃  ┃  ┣━_DISTRIBUTION_COL_[k]    => distribution of column k      ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
- *     ┃  ┃  ┗━(*)_CORRUPTED            => empty indicator file, exists only when confidence is lower than
- *     ┃  ┣━...                            threshold
- *     ┃  ┗━[idx[v]_var[v]]
- *     ┃     ┗━...
- *     ┣━...
- *     ┣━[PID[p]]
- *     ┃  ┗━..                                                      ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
- *     ┗━_CONFIDENCE_BUCKETS                                        ┃[column index[0]]:[base[0]],[setp[0]]┃
- *        ┣━[var[1]]    => var[1] distribution histogram setting    ┃...                                  ┃
- *        ┣━...                                                  => ┃[column index[i]]:[base[i]],[step[i]]┃
- *        ┗━[var[v]]    => var[v] distribution histogram setting    ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
+ *    ┣━[PID[1]]
+ *    ┃  ┣━[idx[1]_var[1]]
+ *    ┃  ┃  ┣━part_0      => part 0 of intermediate data, 'csv' format
+ *    ┃  ┃  ┣━...                                                       ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+ *    ┃  ┃  ┣━part_[n]    => part n of intermediate data, 'csv' format  ┃[bucket#[1]:[probability[1]]┃
+ *    ┃  ┃  ┣━_DISTRIBUTION_COL_0      => distribution of column 0      ┃...                         ┃
+ *    ┃  ┃  ┣━...                                                    => ┃[bucket#[b]:[probability[b]]┃
+ *    ┃  ┃  ┣━_DISTRIBUTION_COL_[k]    => distribution of column k      ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
+ *    ┃  ┃  ┗━(*)_CORRUPTED            => empty indicator file, exists only when confidence is lower than
+ *    ┃  ┣━...                            threshold
+ *    ┃  ┗━[idx[v]_var[v]]
+ *    ┃     ┗━...
+ *    ┣━...
+ *    ┣━[PID[p]]
+ *    ┃  ┗━..                                                      ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+ *    ┗━_CONFIDENCE_BUCKETS                                        ┃[column index[0]]:[base[0]],[setp[0]]┃
+ *       ┣━[var[1]]    => var[1] distribution histogram setting    ┃...                                  ┃
+ *       ┣━...                                                  => ┃[column index[i]]:[base[i]],[step[i]]┃
+ *       ┗━[var[v]]    => var[v] distribution histogram setting    ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
  */
 public class PipelineMonitor {
 
